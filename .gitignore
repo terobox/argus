@@ -1,2 +1,19 @@
-# Ignore notes directory
+# Notes (local design docs, not part of the shipped product)
 _notes
+
+# Go build artifacts
+/argus-agent
+/argus-server
+/bin/
+/dist/
+*.test
+*.out
+
+# Local SQLite databases
+*.db
+*.db-wal
+*.db-shm
+
+# Env / secrets
+.env
+.env.*
