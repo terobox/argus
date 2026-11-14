@@ -27,7 +27,7 @@ export function OverviewPage() {
         <h1 className="text-lg font-semibold">Overview</h1>
         <p className="text-sm text-muted-foreground">
           {connected ? "Live" : "Connecting…"} · {online} of {filtered.length}{" "}
-          online
+          online · updates every 5s
         </p>
       </header>
 
@@ -68,44 +68,60 @@ export function OverviewPage() {
               <span className="text-right">Network ↓ / ↑</span>
               <span className="text-right">Cores</span>
             </div>
-            {filtered.map((n) => (
-              <Link
-                key={n.node_id}
-                to={`/nodes/${encodeURIComponent(n.node_id)}`}
-                className={cn(
-                  GRID,
-                  "border-b border-border/50 px-3 py-2 text-sm transition-colors last:border-0 hover:bg-accent",
-                )}
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <span
-                    className={cn(
-                      "size-1.5 shrink-0 rounded-full",
-                      n.online ? "bg-emerald-500" : "bg-muted-foreground",
-                    )}
-                  />
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">
-                      {n.hostname || n.node_id}
+            {filtered.map((n) => {
+              const isPending = n.last_seen <= 0
+              return (
+                <Link
+                  key={n.node_id}
+                  to={`/nodes/${encodeURIComponent(n.node_id)}`}
+                  className={cn(
+                    GRID,
+                    "border-b border-border/50 px-3 py-2 text-sm transition-colors last:border-0 hover:bg-accent",
+                    isPending && "opacity-60",
+                  )}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className={cn(
+                        "size-1.5 shrink-0 rounded-full",
+                        n.online
+                          ? "bg-emerald-500"
+                          : isPending
+                            ? "border border-muted-foreground bg-transparent"
+                            : "bg-muted-foreground",
+                      )}
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">
+                        {n.hostname || n.node_id}
+                      </span>
+                      <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                        {isPending
+                          ? "pending install"
+                          : n.hostname
+                            ? n.node_id
+                            : `last report ${lastSeenAgo(n.last_seen)}`}
+                      </span>
                     </span>
-                    <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                      {n.hostname
-                        ? n.node_id
-                        : `last report ${lastSeenAgo(n.last_seen)}`}
-                    </span>
+                  </div>
+                  <span className="text-right font-medium tabular-nums">
+                    {n.live ? `${n.live.cpu_percent.toFixed(0)}%` : "—"}
                   </span>
-                </div>
-                <span className="text-right font-medium tabular-nums">
-                  {n.live ? `${n.live.cpu_percent.toFixed(0)}%` : "—"}
-                </span>
-                <MemDiskCell used={n.live?.mem_used} total={n.live?.mem_total} />
-                <MemDiskCell used={n.live?.disk_used} total={n.live?.disk_total} />
-                <NetCell rx={n.live?.net_rx_rate} tx={n.live?.net_tx_rate} />
-                <span className="text-right tabular-nums text-muted-foreground">
-                  {n.cpu_cores || "—"}
-                </span>
-              </Link>
-            ))}
+                  <MemDiskCell
+                    used={n.live?.mem_used}
+                    total={n.live?.mem_total}
+                  />
+                  <MemDiskCell
+                    used={n.live?.disk_used}
+                    total={n.live?.disk_total}
+                  />
+                  <NetCell rx={n.live?.net_rx_rate} tx={n.live?.net_tx_rate} />
+                  <span className="text-right tabular-nums text-muted-foreground">
+                    {n.cpu_cores || "—"}
+                  </span>
+                </Link>
+              )
+            })}
           </div>
         </div>
       )}

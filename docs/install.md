@@ -75,8 +75,8 @@ ARGUS_ADMIN_PASSWORD='你的密码' sudo -E bash install-server.sh
 2. 校验 SHA-256，通过后安装到 `/usr/local/bin/argus-server`。
 3. 创建非登录系统用户 `argus`（`--system --no-create-home --shell /usr/sbin/nologin`）。
 4. 创建数据目录 `/var/lib/argus`（属主 `argus:argus`）。
-5. 写配置 `/etc/argus/server.yaml`（`0640 root:argus`）。
-6. 写 `/etc/argus/server.env` 保存初始管理员凭据（`0640 root:argus`，仅首次启动生效）。
+5. 首次安装时生成 `/etc/argus/server.yaml`（`0640 root:argus`；升级重跑时不覆盖）。
+6. 首次安装时生成 `/etc/argus/server.env` 保存初始管理员凭据（`0640 root:argus`，仅首次启动生效）。
 7. 部署并启动加固的 `argus-server.service`。
 
 安装完成后：
@@ -168,16 +168,33 @@ alert:
 
 ## 升级与卸载
 
-**升级**：直接重新运行对应安装脚本即可（幂等：覆盖二进制、重写配置、重启服务），
-或用 `--version vX.Y.Z` 指定版本。agent 也可手动自更新到最新版：
+**升级（推荐：自更新命令，不动配置）**：agent 与 server 都内置了 `update`
+子命令，从 GitHub Releases 下载最新版、校验 SHA-256、原子替换二进制，
+**不会触碰配置文件**：
 
 ```bash
-sudo /usr/local/bin/argus-agent update   # 下载 + SHA-256 校验 + 原子替换
-sudo systemctl restart argus-agent       # 重启以加载新版本
+# agent
+sudo /usr/local/bin/argus-agent update
+sudo systemctl restart argus-agent
+
+# server
+sudo /usr/local/bin/argus-server update
+sudo systemctl restart argus-server
 ```
 
-> 出于安全考虑，**不提供 agent 自动/远程升级**：agent 以加固的非 root 用户运行，
-> 不应替换 root 拥有的二进制；升级一律由运维手动执行。
+`update` 检测到已是最新版本时会提示 `already up to date` 并跳过下载。
+
+**升级（备用：重跑安装脚本）**：也可以重新运行安装脚本（幂等，会用 `--version`
+指定版本覆盖二进制并重启服务）。server 脚本升级时**不会覆盖已有的
+`/etc/argus/server.yaml` 与 `server.env`**（仅首次安装时生成），因此手动改过的
+告警、`cookie_secure`、`listen_addr` 等配置都会保留；agent 脚本则会按你传入的
+`--server / --node-id / --token` 重新生成 `agent.yaml`。
+
+> `update` 命令走 GitHub API `releases/latest`（未认证，每 IP 每小时 60 次），
+> 偶发限流时退回重跑安装脚本即可（脚本走静态下载地址，不受 API 限流影响）。
+
+> 出于安全考虑，**不提供自动/远程升级**：agent / server 均以加固的非 root 用户运行，
+> 不应替换 root 拥有的二进制；升级一律由运维手动执行（如上 `update` 命令）。
 
 **卸载 agent**：
 

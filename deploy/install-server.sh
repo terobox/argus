@@ -4,7 +4,7 @@
 #
 # 从 GitHub 官方 releases 下载 argus-server 二进制，SHA-256 校验后安装，
 # 以非登录系统用户运行，并部署一个最大限度加固的 systemd 服务。
-# 支持重复执行升级（幂等）与 --uninstall 卸载。
+# 支持重复执行升级（幂等，升级时保留已有配置文件）与 --uninstall 卸载。
 #
 # 用法（交互式设置初始管理员用户名与密码，请先下载再运行）：
 #   curl -fsSL https://raw.githubusercontent.com/terobox/argus/main/deploy/install-server.sh \
@@ -150,10 +150,11 @@ fi
 mkdir -p "$DATA_DIR"
 chown "$SERVICE_USER":"$SERVICE_USER" "$DATA_DIR"
 
-# --- 配置文件 ---
+# --- 配置文件（仅首次安装时生成；升级重跑时保留已有配置，避免覆盖用户改动）---
 mkdir -p "$CONFIG_DIR"
 umask 077
-cat > "$CONFIG_DIR/server.yaml" <<EOF
+if [ ! -f "$CONFIG_DIR/server.yaml" ]; then
+  cat > "$CONFIG_DIR/server.yaml" <<EOF
 # argus server 配置，字段说明见 docs/install.md。
 # 未列出的键使用内置默认值。
 
@@ -168,16 +169,19 @@ cookie_secure: false
 #   enabled: true
 #   webhook_url: "https://ntfy.sh/your-topic"
 EOF
-chown root:"$SERVICE_USER" "$CONFIG_DIR/server.yaml"
-chmod 0640 "$CONFIG_DIR/server.yaml"
+  chown root:"$SERVICE_USER" "$CONFIG_DIR/server.yaml"
+  chmod 0640 "$CONFIG_DIR/server.yaml"
+fi
 
-# --- 初始管理员（仅首次启动生效） ---
-{
-  printf "ARGUS_ADMIN_USERNAME='%s'\n" "$ADMIN_USER"
-  printf "ARGUS_ADMIN_PASSWORD='%s'\n" "$ADMIN_PASSWORD"
-} > "$CONFIG_DIR/server.env"
-chown root:"$SERVICE_USER" "$CONFIG_DIR/server.env"
-chmod 0640 "$CONFIG_DIR/server.env"
+# --- 初始管理员（仅首次安装时生成；首次启动且无任何管理员时才会被读取）---
+if [ ! -f "$CONFIG_DIR/server.env" ]; then
+  {
+    printf "ARGUS_ADMIN_USERNAME='%s'\n" "$ADMIN_USER"
+    printf "ARGUS_ADMIN_PASSWORD='%s'\n" "$ADMIN_PASSWORD"
+  } > "$CONFIG_DIR/server.env"
+  chown root:"$SERVICE_USER" "$CONFIG_DIR/server.env"
+  chmod 0640 "$CONFIG_DIR/server.env"
+fi
 
 # --- systemd 单元（加固） ---
 cat > "/etc/systemd/system/$SERVICE" <<EOF

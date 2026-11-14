@@ -48,6 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCsrf(resp.csrf_token)
     const me = await api.me()
     setUsername(me.username)
+    setCsrf(me.csrf_token)
   }, [])
 
   const logout = useCallback(async () => {

@@ -188,18 +188,17 @@ func (s *Sampler) rootDevice() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Always attempt to resolve symlinks first. Some setups (notably AWS ARM
+	// instances) mount "/" on "/dev/root", a symlink to the actual block device
+	// (e.g. /dev/nvme0n1p1). BaseDeviceName would succeed with "root", which is
+	// not a real diskstats entry, causing disk I/O to be silently dropped.
+	if resolved, rerr := filepath.EvalSymlinks(rootDev); rerr == nil && resolved != rootDev {
+		rootDev = resolved
+	}
 	base, err := BaseDeviceName(rootDev)
 	if err == nil {
 		s.diskDevice = base
 		return base, nil
-	}
-	// Some setups (notably AWS) mount "/" on "/dev/root", a symlink to the real
-	// device. Resolve it and retry so disk I/O is not silently lost there.
-	if resolved, rerr := filepath.EvalSymlinks(rootDev); rerr == nil {
-		if base, err := BaseDeviceName(resolved); err == nil {
-			s.diskDevice = base
-			return base, nil
-		}
 	}
 	return "", err
 }

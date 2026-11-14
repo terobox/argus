@@ -27,6 +27,13 @@ func newUIHandler(dist fs.FS) http.Handler {
 			return
 		}
 
+		// Security headers for all UI responses.
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:")
+
 		name := r.URL.Path
 		if name == "/" {
 			name = "/index.html"

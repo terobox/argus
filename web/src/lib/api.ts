@@ -108,9 +108,29 @@ export interface CreateNodeResponse {
   token: string
 }
 
+// refreshCsrf fetches a fresh CSRF token from /me. Deduplicates concurrent
+// calls so only one round-trip is in flight at a time.
+let _csrfRefresh: Promise<void> | null = null
+async function refreshCsrf(): Promise<void> {
+  if (_csrfRefresh) return _csrfRefresh
+  _csrfRefresh = (async () => {
+    try {
+      const res = await fetch("/api/v1/auth/me", { credentials: "same-origin" })
+      if (res.ok) {
+        const data: MeResponse = await res.json()
+        if (data?.csrf_token) csrfToken = data.csrf_token
+      }
+    } finally {
+      _csrfRefresh = null
+    }
+  })()
+  return _csrfRefresh
+}
+
 async function request<T>(
   path: string,
   init: { method?: string; body?: unknown } = {},
+  _retry = true,
 ): Promise<T> {
   const method = init.method ?? "GET"
   const headers: Record<string, string> = {}
@@ -132,6 +152,14 @@ async function request<T>(
 
   if (res.status === 204) return undefined as T
   if (res.status === 401) throw new UnauthorizedError()
+
+  // On CSRF rejection: refresh the token from /me and retry exactly once.
+  // This handles the case where the in-memory token is stale (e.g. after a
+  // server restart that rotated sessions) without forcing the user to log out.
+  if (res.status === 403 && _retry) {
+    await refreshCsrf()
+    return request(path, init, false)
+  }
 
   const data: unknown = await res.json().catch(() => undefined)
   if (!res.ok) throw new ApiError(res.status)

@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -11,6 +12,14 @@ import (
 	"github.com/terobox/argus/pkg/protocol"
 	"github.com/terobox/argus/pkg/storage"
 )
+
+// nodeIDRe allows only URL-safe characters that are unambiguous in log lines
+// and paths. Intentionally excludes slashes, whitespace, and shell metacharacters.
+var nodeIDRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+// maxSmallBodyBytes caps the JSON body for admin mutations (createNode,
+// deleteNode) which carry only short text fields.
+const maxSmallBodyBytes = 64 << 10 // 64 KiB
 
 // nodeView is the JSON shape returned by the node list endpoint. It omits the
 // token hash so a viewer cannot reconstruct or leak it. Hostname is empty if the
@@ -103,12 +112,16 @@ type createNodeResponse struct {
 // Only the token's SHA-256 hash is stored, so it can never be shown again.
 func (s *Server) handleCreateNode(w http.ResponseWriter, r *http.Request) {
 	var req createNodeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxSmallBodyBytes)).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	if req.NodeID == "" || len(req.NodeID) > protocol.MaxNodeIDLen {
 		httpError(w, http.StatusBadRequest, "node_id is required and must be <= 128 chars")
+		return
+	}
+	if !nodeIDRe.MatchString(req.NodeID) {
+		httpError(w, http.StatusBadRequest, "node_id may only contain letters, digits, dots, underscores, and hyphens")
 		return
 	}
 
@@ -154,7 +167,7 @@ type deleteNodeRequest struct {
 
 func (s *Server) handleDeleteNode(w http.ResponseWriter, r *http.Request) {
 	var req deleteNodeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxSmallBodyBytes)).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}

@@ -13,9 +13,10 @@ import (
 // handleHostInfo ingests a host-info report. Like ingest it is node-token
 // authenticated (no admin session), and it accepts an optional gzip body.
 func (s *Server) handleHostInfo(w http.ResponseWriter, r *http.Request) {
-	body := io.Reader(r.Body)
+	body := io.Reader(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	if r.Header.Get("Content-Encoding") == "gzip" {
-		zr, err := gzip.NewReader(r.Body)
+		// gzip.NewReader must wrap body (which has the size limit), not r.Body directly.
+		zr, err := gzip.NewReader(body)
 		if err != nil {
 			httpError(w, http.StatusBadRequest, "invalid gzip body")
 			return

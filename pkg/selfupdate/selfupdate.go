@@ -1,7 +1,8 @@
 // Package selfupdate downloads the latest release of a single binary asset from
 // GitHub Releases and installs it atomically over the running executable,
 // verifying the asset's SHA-256 against the release's checksums.txt. It uses only
-// the standard library, so the agent needs no extra dependency to upgrade itself.
+// the standard library, so the agent or server needs no extra dependency to
+// upgrade itself.
 //
 // Unauthenticated GitHub API requests are rate-limited to 60/hour per IP; a
 // self-update check happens rarely, so that is ample.
@@ -171,7 +172,7 @@ func (u *Updater) download(ctx context.Context, url string) ([]byte, error) {
 // never leave a truncated binary at the target path.
 func (u *Updater) install(ctx context.Context, execPath, assetURL, wantSHA string) error {
 	dir := filepath.Dir(execPath)
-	tmp, err := os.CreateTemp(dir, ".argus-agent-*.tmp")
+	tmp, err := os.CreateTemp(dir, ".argus-selfupdate-*.tmp")
 	if err != nil {
 		return fmt.Errorf("selfupdate: temp: %w", err)
 	}

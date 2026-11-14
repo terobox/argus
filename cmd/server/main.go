@@ -33,12 +33,17 @@ func main() {
 	}
 }
 
-// run dispatches the "version" subcommand and otherwise runs the server with
-// the standard -config flag.
+// run dispatches the "update" and "version" subcommands and otherwise runs the
+// server with the standard -config flag.
 func run(args []string) error {
-	if len(args) > 0 && args[0] == "version" {
-		fmt.Println(serverVersion)
-		return nil
+	if len(args) > 0 {
+		switch args[0] {
+		case "update":
+			return runUpdate()
+		case "version":
+			fmt.Println(serverVersion)
+			return nil
+		}
 	}
 
 	fs := flag.NewFlagSet("argus-server", flag.ExitOnError)
@@ -92,6 +97,7 @@ func runServer(configPath string) error {
 	defer stop()
 
 	go srv.RunJobs(ctx, cfg.JobInterval.D())
+	go srv.RunStatusBroadcast(ctx)
 
 	go func() {
 		<-ctx.Done()

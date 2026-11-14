@@ -15,8 +15,9 @@ import (
 // loginRateLimit is the login endpoint's throttle: per IP+username, this many
 // attempts per loginRateWindow.
 const (
-	loginRateLimit  = 5
-	loginRateWindow = time.Minute
+	loginRateLimit    = 5
+	loginRateWindow   = time.Minute
+	maxLoginBodyBytes = 4 << 10 // 4 KiB — far more than a username+password needs
 )
 
 // Auth bundles login/logout handling, session management, CSRF, and the
@@ -65,7 +66,7 @@ func (a *Auth) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxLoginBodyBytes)).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}

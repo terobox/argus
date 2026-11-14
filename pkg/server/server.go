@@ -5,6 +5,7 @@ package server
 import (
 	"compress/gzip"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -63,10 +64,15 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
+// maxBodyBytes caps agent ingest payload size to prevent memory exhaustion from
+// a misbehaving or malicious agent.
+const maxBodyBytes = 1 << 20 // 1 MiB
+
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
-	body := io.Reader(r.Body)
+	body := io.Reader(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	if r.Header.Get("Content-Encoding") == "gzip" {
-		zr, err := gzip.NewReader(r.Body)
+		// gzip.NewReader must wrap body (which has the size limit), not r.Body directly.
+		zr, err := gzip.NewReader(body)
 		if err != nil {
 			httpError(w, http.StatusBadRequest, "invalid gzip body")
 			return
@@ -107,11 +113,12 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("touch node", "node_id", rep.NodeID, "err", err)
 	}
 
-	// Fan out the latest sample to live dashboard clients.
+	// Fan out the latest sample to live dashboard clients as a pre-formatted
+	// SSE frame, so handleStream can write it directly without reformatting.
 	if n := len(rep.Samples); n > 0 {
 		s.latest.put(rep.NodeID, rep.Samples[n-1])
 		if msg, err := json.Marshal(sampleEvent{NodeID: rep.NodeID, Sample: rep.Samples[n-1]}); err == nil {
-			s.hub.publish(msg)
+			s.hub.publish(fmt.Appendf(nil, "event: sample\ndata: %s\n\n", msg))
 		}
 	}
 

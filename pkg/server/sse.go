@@ -93,6 +93,10 @@ type nodeStatus struct {
 // requires an admin session (the browser sends the cookie automatically on a
 // same-origin EventSource). It emits "sample" events on ingest and a periodic
 // "status" event with the node list and online state.
+//
+// Status frames are published by the single RunStatusBroadcast goroutine rather
+// than by a per-client ticker, so N connected dashboards cause 1 DB query per
+// statusInterval rather than N.
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -107,32 +111,67 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	ch := s.hub.subscribe()
 	defer s.hub.unsubscribe(ch)
 
-	// Send an initial status so a fresh connection has a node list.
+	// Send the current node list immediately on connect. After this, periodic
+	// status frames arrive via the hub from RunStatusBroadcast, so this is the
+	// only per-connection DB query.
 	s.writeStatus(w, flusher, r.Context())
-
-	status := time.NewTicker(statusInterval)
-	defer status.Stop()
 
 	for {
 		select {
 		case <-r.Context().Done():
 			return
-		case msg := <-ch:
-			fmt.Fprintf(w, "event: sample\ndata: %s\n\n", msg)
+		case frame := <-ch:
+			w.Write(frame) //nolint:errcheck
 			flusher.Flush()
-		case <-status.C:
-			s.writeStatus(w, flusher, r.Context())
 		}
 	}
 }
 
-// writeStatus sends the current node list with online state. Errors are
-// non-fatal: the stream continues and the next tick retries.
+// RunStatusBroadcast runs the periodic status broadcast goroutine. It computes
+// the node list once per statusInterval and publishes the pre-formatted SSE
+// frame to all connected SSE clients via the hub. Call once from main.
+func (s *Server) RunStatusBroadcast(ctx context.Context) {
+	tick := time.NewTicker(statusInterval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			s.broadcastStatus(ctx)
+		}
+	}
+}
+
+// broadcastStatus builds the current node-list payload and fans it out to all
+// connected SSE clients as a pre-formatted "status" event frame.
+func (s *Server) broadcastStatus(ctx context.Context) {
+	payload, err := s.buildStatusPayload(ctx)
+	if err != nil {
+		s.logger.Warn("sse status broadcast", "err", err)
+		return
+	}
+	s.hub.publish(fmt.Appendf(nil, "event: status\ndata: %s\n\n", payload))
+}
+
+// writeStatus sends the current node list directly to one SSE client. Used for
+// the initial frame on connection; subsequent frames come via the hub.
 func (s *Server) writeStatus(w http.ResponseWriter, flusher http.Flusher, ctx context.Context) {
-	nodes, err := s.store.ListNodeSummaries(ctx)
+	payload, err := s.buildStatusPayload(ctx)
 	if err != nil {
 		s.logger.Warn("sse status", "err", err)
 		return
+	}
+	fmt.Fprintf(w, "event: status\ndata: %s\n\n", payload)
+	flusher.Flush()
+}
+
+// buildStatusPayload queries the store and constructs the JSON payload for a
+// "status" SSE event.
+func (s *Server) buildStatusPayload(ctx context.Context) ([]byte, error) {
+	nodes, err := s.store.ListNodeSummaries(ctx)
+	if err != nil {
+		return nil, err
 	}
 	now := time.Now().Unix()
 	out := make([]nodeStatus, 0, len(nodes))
@@ -162,10 +201,5 @@ func (s *Server) writeStatus(w http.ResponseWriter, flusher http.Flusher, ctx co
 		}
 		out = append(out, st)
 	}
-	payload, err := json.Marshal(out)
-	if err != nil {
-		return
-	}
-	fmt.Fprintf(w, "event: status\ndata: %s\n\n", payload)
-	flusher.Flush()
+	return json.Marshal(out)
 }
