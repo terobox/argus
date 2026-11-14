@@ -49,6 +49,45 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return fmt.Errorf("migrate: %w", err)
 		}
 	}
+	// ALTER TABLE ADD COLUMN is not idempotent, so additive column migrations are
+	// guarded by a PRAGMA table_info check below instead of living in `migrations`.
+	if err := s.ensureColumn(ctx, "nodes", "tags",
+		`ALTER TABLE nodes ADD COLUMN tags TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ensureColumn adds column to table via ddl if it is not already present, so the
+// migration is safe to run on every startup. table and column are internal
+// constants, never user input.
+func (s *Store) ensureColumn(ctx context.Context, table, column, ddl string) error {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", table, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid               int
+			name, typ         string
+			notNull, pk       int
+			dflt              sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			return fmt.Errorf("inspect %s: %w", table, err)
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, ddl); err != nil {
+		return fmt.Errorf("add column %s.%s: %w", table, column, err)
+	}
 	return nil
 }
 

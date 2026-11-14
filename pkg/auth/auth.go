@@ -115,9 +115,16 @@ func (a *Auth) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// HandleMe returns the authenticated username. It must be wrapped by RequireAdmin.
+// HandleMe returns the authenticated username and the session's CSRF token. It
+// must be wrapped by RequireAdmin, which places both values in the context. The
+// client restores the token from here on a page reload, so it never loses the
+// ability to make mutating requests without a fresh login.
 func (a *Auth) HandleMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"username": Admin(r.Context())})
+	csrf, _ := r.Context().Value(ctxCSRF).(string)
+	writeJSON(w, http.StatusOK, map[string]string{
+		"username":   Admin(r.Context()),
+		"csrf_token": csrf,
+	})
 }
 
 // Sweep removes expired sessions and stale rate-limit keys. Call periodically.

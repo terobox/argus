@@ -14,6 +14,36 @@ function navCls({ isActive }: { isActive: boolean }) {
   )
 }
 
+// Logo is the graph-star mark from _notes/design/assets/graph-star.svg, inlined
+// so it inherits currentColor and adapts to light/dark theme automatically.
+function Logo({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="m12.342 9.316 1.764-3.527" />
+      <path d="m12.59 14.545 2.35 3.759" />
+      <path d="m13.982 12.332 4.03.447" />
+      <path d="M5.414 17.586 8.88 14.12" />
+      <path d="M9.025 9.742 5.317 5.505" />
+      <circle cx="11" cy="12" r="3" />
+      <circle cx="15" cy="4" r="2" />
+      <circle cx="16" cy="20" r="2" />
+      <circle cx="20" cy="13" r="2" />
+      <circle cx="4" cy="19" r="2" />
+      <circle cx="4" cy="4" r="2" />
+    </svg>
+  )
+}
+
 export function AppLayout() {
   const { username, logout } = useAuth()
   const { theme, setTheme } = useTheme()
@@ -28,7 +58,7 @@ export function AppLayout() {
     <div className="flex min-h-svh">
       <aside className="flex w-52 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
         <div className="flex h-14 items-center gap-2 px-4 text-sm font-semibold">
-          <span className="size-2 rounded-full bg-sidebar-primary" />
+          <Logo className="size-4 text-sidebar-primary" />
           Argus
         </div>
         <nav className="flex flex-1 flex-col gap-1 px-2 py-2">

@@ -65,13 +65,28 @@ type sampleEvent struct {
 	Sample metrics.Sample `json:"sample"`
 }
 
+// nodeMetrics is the live block of a status entry, sourced from the in-memory
+// latest sample. It is omitted entirely when a node has not reported a sample.
+type nodeMetrics struct {
+	CPUPercent float64 `json:"cpu_percent"`
+	MemUsed    int64   `json:"mem_used"`
+	MemTotal   int64   `json:"mem_total"`
+	DiskUsed   int64   `json:"disk_used"`
+	DiskTotal  int64   `json:"disk_total"`
+	NetRxRate  float64 `json:"net_rx_rate"`
+	NetTxRate  float64 `json:"net_tx_rate"`
+}
+
 // nodeStatus is one node's entry in a "status" event.
 type nodeStatus struct {
-	NodeID    string `json:"node_id"`
-	Hostname  string `json:"hostname"`
-	FirstSeen int64  `json:"first_seen"`
-	LastSeen  int64  `json:"last_seen"`
-	Online    bool   `json:"online"`
+	NodeID    string       `json:"node_id"`
+	Hostname  string       `json:"hostname"`
+	FirstSeen int64        `json:"first_seen"`
+	LastSeen  int64        `json:"last_seen"`
+	Online    bool         `json:"online"`
+	CPUCores  int          `json:"cpu_cores"`
+	Tags      []string     `json:"tags"`
+	Live      *nodeMetrics `json:"live,omitempty"`
 }
 
 // handleStream serves GET /api/v1/stream as a Server-Sent Events stream. It
@@ -122,13 +137,30 @@ func (s *Server) writeStatus(w http.ResponseWriter, flusher http.Flusher, ctx co
 	now := time.Now().Unix()
 	out := make([]nodeStatus, 0, len(nodes))
 	for _, n := range nodes {
-		out = append(out, nodeStatus{
+		st := nodeStatus{
 			NodeID:    n.NodeID,
 			Hostname:  n.Hostname,
 			FirstSeen: n.FirstSeen,
 			LastSeen:  n.LastSeen,
 			Online:    now-n.LastSeen <= int64(nodeOfflineAfter/time.Second),
-		})
+			CPUCores:  n.CPUCores,
+			Tags:      n.Tags,
+		}
+		if lv, ok := s.latest.get(n.NodeID); ok {
+			m := &nodeMetrics{
+				CPUPercent: lv.sample.CPU.UsedPercent,
+				MemUsed:    lv.sample.Mem.UsedBytes,
+				MemTotal:   lv.sample.Mem.TotalBytes,
+				NetRxRate:  lv.rxRate,
+				NetTxRate:  lv.txRate,
+			}
+			if lv.sample.DiskCap != nil {
+				m.DiskUsed = lv.sample.DiskCap.UsedBytes
+				m.DiskTotal = lv.sample.DiskCap.TotalBytes
+			}
+			st.Live = m
+		}
+		out = append(out, st)
 	}
 	payload, err := json.Marshal(out)
 	if err != nil {

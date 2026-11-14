@@ -6,7 +6,7 @@
 # 以非登录系统用户运行，并部署一个最大限度加固的 systemd 服务。
 # 支持重复执行升级（幂等）与 --uninstall 卸载。
 #
-# 用法（交互式设置初始管理员密码，请先下载再运行）：
+# 用法（交互式设置初始管理员用户名与密码，请先下载再运行）：
 #   curl -fsSL https://raw.githubusercontent.com/terobox/argus/main/deploy/install-server.sh \
 #     -o install-server.sh
 #   sudo bash install-server.sh
@@ -24,7 +24,7 @@ SERVICE="argus-server.service"
 
 LISTEN=":8095"
 DATA_DIR="/var/lib/argus"
-ADMIN_USER="${ARGUS_ADMIN_USERNAME:-admin}"
+ADMIN_USER="${ARGUS_ADMIN_USERNAME:-}"
 ADMIN_PASSWORD="${ARGUS_ADMIN_PASSWORD:-}"
 VERSION=""
 UNINSTALL=0
@@ -36,7 +36,7 @@ usage() {
        curl -fsSL https://raw.githubusercontent.com/terobox/argus/main/deploy/install-server.sh -o install-server.sh
        sudo bash install-server.sh
   2) 自动化（免交互）：
-       ARGUS_ADMIN_PASSWORD='...' sudo -E bash install-server.sh
+       ARGUS_ADMIN_USERNAME='...' ARGUS_ADMIN_PASSWORD='...' sudo -E bash install-server.sh
 
 选项:
   --listen <addr>       监听地址（默认 :8095）
@@ -82,6 +82,16 @@ fi
 [ "$(uname -s)" = "Linux" ] || die "仅支持 Linux"
 command -v curl >/dev/null 2>&1 || die "需要 curl"
 command -v systemctl >/dev/null 2>&1 || die "需要 systemd（Ubuntu 20.04+）"
+
+# --- 初始管理员用户名（交互式时提示，默认 admin）---
+if [ -z "$ADMIN_USER" ]; then
+  if [ -t 0 ] && [ -z "$ADMIN_PASSWORD" ]; then
+    read -rp "初始管理员用户名（默认 admin）: " ADMIN_USER
+    ADMIN_USER="${ADMIN_USER:-admin}"
+  else
+    ADMIN_USER="admin"
+  fi
+fi
 
 # --- 初始管理员密码 ---
 if [ -z "$ADMIN_PASSWORD" ]; then

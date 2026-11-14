@@ -1,12 +1,25 @@
 import { useEffect, useState } from "react"
 import type { Sample } from "@/lib/api"
 
+export interface NodeMetrics {
+  cpu_percent: number
+  mem_used: number
+  mem_total: number
+  disk_used: number
+  disk_total: number
+  net_rx_rate: number
+  net_tx_rate: number
+}
+
 export interface StatusEvent {
   node_id: string
   hostname: string
   first_seen: number
   last_seen: number
   online: boolean
+  cpu_cores: number
+  tags: string[]
+  live?: NodeMetrics
 }
 
 export interface SampleEvent {

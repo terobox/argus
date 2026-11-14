@@ -5,16 +5,20 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // Node is a registered agent. TokenHash is the SHA-256 hex digest of the node's
-// token (see HashToken); the plaintext token is never stored.
+// token (see HashToken); the plaintext token is never stored. Tags are the
+// user-assigned grouping labels, stored as a JSON array string.
 type Node struct {
 	NodeID    string
 	TokenHash string
 	FirstSeen int64
 	LastSeen  int64
+	Tags      []string
 }
 
 // HashToken returns the SHA-256 hex digest of a node token. Storing only this
@@ -28,13 +32,32 @@ func HashToken(token string) string {
 // Ingest must use TouchNode (not UpsertNode) so it can never alter a node's
 // token hash.
 func (s *Store) UpsertNode(ctx context.Context, n Node) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO nodes (node_id, token_hash, first_seen, last_seen) VALUES (?, ?, ?, ?)`,
-		n.NodeID, n.TokenHash, n.FirstSeen, n.LastSeen)
+	tags, err := json.Marshal(n.Tags)
 	if err != nil {
+		return fmt.Errorf("marshal tags: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO nodes (node_id, token_hash, first_seen, last_seen, tags) VALUES (?, ?, ?, ?, ?)`,
+		n.NodeID, n.TokenHash, n.FirstSeen, n.LastSeen, string(tags)); err != nil {
 		return fmt.Errorf("upsert node: %w", err)
 	}
 	return nil
+}
+
+// parseTags decodes a node's tags JSON column. Empty, "null", and malformed
+// values all yield an empty (non-nil) slice rather than an error, so a
+// pre-existing row (or an empty default) never breaks the read path and the API
+// always serializes tags as [] rather than null.
+func parseTags(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "null" {
+		return []string{}
+	}
+	var tags []string
+	if err := json.Unmarshal([]byte(s), &tags); err != nil {
+		return []string{}
+	}
+	return tags
 }
 
 // VerifyNodeToken reports whether token matches nodeID's stored hash. An
@@ -80,7 +103,7 @@ func (s *Store) DeleteNode(ctx context.Context, nodeID string) error {
 // ListNodes returns all registered nodes ordered by node_id.
 func (s *Store) ListNodes(ctx context.Context) ([]Node, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT node_id, token_hash, first_seen, last_seen FROM nodes ORDER BY node_id`)
+		`SELECT node_id, token_hash, first_seen, last_seen, tags FROM nodes ORDER BY node_id`)
 	if err != nil {
 		return nil, fmt.Errorf("list nodes: %w", err)
 	}
@@ -89,9 +112,11 @@ func (s *Store) ListNodes(ctx context.Context) ([]Node, error) {
 	var out []Node
 	for rows.Next() {
 		var n Node
-		if err := rows.Scan(&n.NodeID, &n.TokenHash, &n.FirstSeen, &n.LastSeen); err != nil {
+		var tags string
+		if err := rows.Scan(&n.NodeID, &n.TokenHash, &n.FirstSeen, &n.LastSeen, &tags); err != nil {
 			return nil, fmt.Errorf("list nodes scan: %w", err)
 		}
+		n.Tags = parseTags(tags)
 		out = append(out, n)
 	}
 	return out, rows.Err()

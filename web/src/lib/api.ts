@@ -43,6 +43,8 @@ export interface NodeSummary {
   hostname: string
   first_seen: number
   last_seen: number
+  cpu_cores: number
+  tags: string[]
 }
 
 export interface NodeDetail {
@@ -50,6 +52,8 @@ export interface NodeDetail {
   first_seen: number
   last_seen: number
   host_info?: HostInfo
+  tags?: string[]
+  latest_sample?: Sample
 }
 
 export interface SeriesPoint {
@@ -92,6 +96,7 @@ export interface Sample {
 
 interface MeResponse {
   username: string
+  csrf_token: string
 }
 
 interface LoginResponse {
@@ -144,10 +149,10 @@ export const api = {
   listNodes: () => request<NodeSummary[]>("/api/v1/nodes"),
   getNode: (id: string) =>
     request<NodeDetail>(`/api/v1/nodes/${encodeURIComponent(id)}`),
-  createNode: (nodeId: string) =>
+  createNode: (nodeId: string, tags: string[] = []) =>
     request<CreateNodeResponse>("/api/v1/nodes", {
       method: "POST",
-      body: { node_id: nodeId },
+      body: { node_id: nodeId, tags },
     }),
   deleteNode: (nodeId: string) =>
     request<void>("/api/v1/nodes", {

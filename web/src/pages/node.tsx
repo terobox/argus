@@ -8,10 +8,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { MetricChart, MultiLineChart } from "@/components/chart"
+import { MetricChart, MultiLineChart, Sparkline } from "@/components/chart"
 import { api, type NodeDetail, type SeriesPoint } from "@/lib/api"
 import { useSampleStream } from "@/lib/sse"
-import { formatBytes, formatPercent, formatRate, timeAgo } from "@/lib/format"
+import { formatBytes, formatPercent, formatRate, lastSeenAgo, timeAgo } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 const RANGES = [
@@ -73,6 +73,9 @@ export function NodePage() {
 
   const online = detail ? Date.now() / 1000 - detail.last_seen <= ONLINE_AFTER : false
   const hi = detail?.host_info
+  // Prefer the live SSE sample once it arrives; fall back to the latest sample
+  // from the detail response so the top stats are never blank on first paint.
+  const live = sample ?? detail?.latest_sample ?? null
 
   return (
     <div className="flex flex-col gap-6">
@@ -87,7 +90,7 @@ export function NodePage() {
               )}
             />
             {online ? "online" : "offline"} · last report{" "}
-            {detail ? timeAgo(detail.last_seen) : "…"} ·{" "}
+            {detail ? lastSeenAgo(detail.last_seen) : "…"} ·{" "}
             <span className="font-mono text-xs">{id}</span>
           </p>
         </div>
@@ -105,21 +108,61 @@ export function NodePage() {
         </div>
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <UsageStat
           label="CPU"
-          value={sample ? formatPercent(sample.cpu.used_percent) : "—"}
+          value={live ? formatPercent(live.cpu.used_percent) : "—"}
+          sub="usage"
+          percent={live?.cpu.used_percent}
+          points={points}
+          accessor={(p) => p.cpu}
+          color="var(--chart-1)"
         />
-        <Stat
-          label="Load (1m)"
-          value={sample ? sample.load.load1.toFixed(2) : "—"}
+        <UsageStat
+          label="Memory"
+          value={live ? formatBytes(live.mem.used_bytes) : "—"}
+          sub={live ? `of ${formatBytes(live.mem.total_bytes)}` : undefined}
+          percent={
+            live && live.mem.total_bytes > 0
+              ? (live.mem.used_bytes / live.mem.total_bytes) * 100
+              : undefined
+          }
+          points={points}
+          accessor={(p) => p.mem_used}
+          color="var(--chart-2)"
         />
-        <Stat
-          label="Memory used"
-          value={sample ? formatBytes(sample.mem.used_bytes) : "—"}
+        <UsageStat
+          label="Disk"
+          value={live?.disk_cap ? formatBytes(live.disk_cap.used_bytes) : "—"}
+          sub={live?.disk_cap ? `of ${formatBytes(live.disk_cap.total_bytes)}` : undefined}
+          percent={
+            live?.disk_cap && live.disk_cap.total_bytes > 0
+              ? (live.disk_cap.used_bytes / live.disk_cap.total_bytes) * 100
+              : undefined
+          }
+          points={points}
+          accessor={(p) => p.disk_used ?? 0}
+          color="var(--chart-3)"
         />
-        <Stat label="Resolution" value={resolution || "—"} />
+        <UsageStat
+          label="Load"
+          value={live ? live.load.load1.toFixed(2) : "—"}
+          sub={
+            live
+              ? `5m ${live.load.load5.toFixed(2)} · 15m ${live.load.load15.toFixed(2)}`
+              : undefined
+          }
+          points={points}
+          accessor={(p) => p.load1}
+          color="var(--chart-4)"
+        />
       </div>
+
+      <p className="text-xs text-muted-foreground">
+        {live
+          ? `Updated ${timeAgo(live.ts)} · refreshes about every 15s`
+          : "Waiting for the agent's first report (arrives within ~15s)"}
+      </p>
 
       {hi && (
         <Card>
@@ -144,7 +187,7 @@ export function NodePage() {
       <Card>
         <CardHeader>
           <CardTitle>CPU</CardTitle>
-          <CardDescription>Total utilization %</CardDescription>
+          <CardDescription>Total utilization % · {resolution || "…"}</CardDescription>
         </CardHeader>
         <CardContent>
           <MetricChart
@@ -226,12 +269,53 @@ export function NodePage() {
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function UsageStat({
+  label,
+  value,
+  sub,
+  percent,
+  points,
+  accessor,
+  color,
+}: {
+  label: string
+  value: string
+  sub?: string
+  percent?: number
+  points: SeriesPoint[]
+  accessor: (p: SeriesPoint) => number
+  color: string
+}) {
   return (
     <Card>
       <CardContent className="py-4">
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-xs text-muted-foreground">{label}</span>
+          {sub && (
+            <span className="truncate text-[11px] tabular-nums text-muted-foreground">
+              {sub}
+            </span>
+          )}
+        </div>
+        <div className="mt-1 flex items-end justify-between gap-3">
+          <div className="text-2xl font-semibold tabular-nums">{value}</div>
+          {points.length > 0 && (
+            <div className="h-8 w-24 shrink-0">
+              <Sparkline points={points} accessor={accessor} color={color} />
+            </div>
+          )}
+        </div>
+        {percent !== undefined && (
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${Math.max(0, Math.min(100, percent))}%`,
+                background: color,
+              }}
+            />
+          </div>
+        )}
       </CardContent>
     </Card>
   )

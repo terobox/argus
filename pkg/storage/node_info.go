@@ -38,19 +38,23 @@ func (s *Store) GetNodeInfo(ctx context.Context, nodeID string) (metrics.HostInf
 	return hi, true, nil
 }
 
-// NodeSummary is a node row plus its hostname (empty if the agent never reported
-// host info). It omits the token hash.
+// NodeSummary is a node row plus its hostname, core count, and tags (empty if
+// the agent never reported host info). It omits the token hash.
 type NodeSummary struct {
 	NodeID    string
 	Hostname  string
 	FirstSeen int64
 	LastSeen  int64
+	CPUCores  int
+	Tags      []string
 }
 
-// ListNodeSummaries returns all nodes with their hostname, ordered by node_id.
+// ListNodeSummaries returns all nodes with their hostname and core count,
+// ordered by node_id.
 func (s *Store) ListNodeSummaries(ctx context.Context) ([]NodeSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT n.node_id, COALESCE(i.hostname, ''), n.first_seen, n.last_seen
+		SELECT n.node_id, COALESCE(i.hostname, ''), n.first_seen, n.last_seen,
+		       COALESCE(i.cpu_cores, 0), n.tags
 		FROM nodes n LEFT JOIN node_info i ON i.node_id = n.node_id
 		ORDER BY n.node_id`)
 	if err != nil {
@@ -61,9 +65,11 @@ func (s *Store) ListNodeSummaries(ctx context.Context) ([]NodeSummary, error) {
 	var out []NodeSummary
 	for rows.Next() {
 		var n NodeSummary
-		if err := rows.Scan(&n.NodeID, &n.Hostname, &n.FirstSeen, &n.LastSeen); err != nil {
+		var tags string
+		if err := rows.Scan(&n.NodeID, &n.Hostname, &n.FirstSeen, &n.LastSeen, &n.CPUCores, &tags); err != nil {
 			return nil, fmt.Errorf("list node summaries scan: %w", err)
 		}
+		n.Tags = parseTags(tags)
 		out = append(out, n)
 	}
 	return out, rows.Err()
@@ -72,14 +78,16 @@ func (s *Store) ListNodeSummaries(ctx context.Context) ([]NodeSummary, error) {
 // GetNode returns the node named nodeID, or ok=false if absent.
 func (s *Store) GetNode(ctx context.Context, nodeID string) (Node, bool, error) {
 	var n Node
+	var tags string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT node_id, token_hash, first_seen, last_seen FROM nodes WHERE node_id = ?`, nodeID).
-		Scan(&n.NodeID, &n.TokenHash, &n.FirstSeen, &n.LastSeen)
+		`SELECT node_id, token_hash, first_seen, last_seen, tags FROM nodes WHERE node_id = ?`, nodeID).
+		Scan(&n.NodeID, &n.TokenHash, &n.FirstSeen, &n.LastSeen, &tags)
 	if err == sql.ErrNoRows {
 		return Node{}, false, nil
 	}
 	if err != nil {
 		return Node{}, false, fmt.Errorf("get node: %w", err)
 	}
+	n.Tags = parseTags(tags)
 	return n, true, nil
 }

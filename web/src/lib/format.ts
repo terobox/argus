@@ -43,3 +43,10 @@ export function timeAgo(ts: number): string {
   const d = Math.floor(h / 24)
   return `${d}d ago`
 }
+
+// lastSeenAgo renders a node's last report time; a zero timestamp means the
+// agent has never reported yet (last_seen is 0 until the first ingest).
+export function lastSeenAgo(ts: number): string {
+  if (ts <= 0) return "never"
+  return timeAgo(ts)
+}

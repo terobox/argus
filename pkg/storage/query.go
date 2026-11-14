@@ -31,6 +31,23 @@ func (s *Store) QueryRaw(ctx context.Context, nodeID string, from, to int64) ([]
 	return out, rows.Err()
 }
 
+// QueryLatest returns the most recent raw sample for nodeID, or ok=false if the
+// node has no samples yet. It lets the detail view render current metrics
+// immediately, before the next live ingest arrives.
+func (s *Store) QueryLatest(ctx context.Context, nodeID string) (metrics.Sample, bool, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+rawColumns+` FROM samples_raw WHERE node_id = ? ORDER BY ts DESC LIMIT 1`,
+		nodeID)
+	sm, err := scanSample(row)
+	if err == sql.ErrNoRows {
+		return metrics.Sample{}, false, nil
+	}
+	if err != nil {
+		return metrics.Sample{}, false, fmt.Errorf("query latest: %w", err)
+	}
+	return sm, true, nil
+}
+
 // scanner is satisfied by both *sql.Row and *sql.Rows.
 type scanner interface{ Scan(dest ...any) error }
 

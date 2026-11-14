@@ -22,6 +22,7 @@ type Server struct {
 	auth   *auth.Auth
 	alerts *alert.Evaluator
 	hub    *hub
+	latest *latestStore
 	ui     http.Handler
 	logger *slog.Logger
 }
@@ -30,7 +31,7 @@ type Server struct {
 // alerting.
 func New(store *storage.Store, logger *slog.Logger, a *auth.Auth, alerts *alert.Evaluator) *Server {
 	dist, _ := web.Dist()
-	return &Server{store: store, auth: a, alerts: alerts, hub: newHub(), ui: newUIHandler(dist), logger: logger}
+	return &Server{store: store, auth: a, alerts: alerts, hub: newHub(), latest: newLatestStore(), ui: newUIHandler(dist), logger: logger}
 }
 
 // Handler returns the HTTP handler with all routes registered.
@@ -108,6 +109,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 
 	// Fan out the latest sample to live dashboard clients.
 	if n := len(rep.Samples); n > 0 {
+		s.latest.put(rep.NodeID, rep.Samples[n-1])
 		if msg, err := json.Marshal(sampleEvent{NodeID: rep.NodeID, Sample: rep.Samples[n-1]}); err == nil {
 			s.hub.publish(msg)
 		}

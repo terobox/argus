@@ -5,6 +5,7 @@ package collect
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -188,11 +189,19 @@ func (s *Sampler) rootDevice() (string, error) {
 		return "", err
 	}
 	base, err := BaseDeviceName(rootDev)
-	if err != nil {
-		return "", err
+	if err == nil {
+		s.diskDevice = base
+		return base, nil
 	}
-	s.diskDevice = base
-	return base, nil
+	// Some setups (notably AWS) mount "/" on "/dev/root", a symlink to the real
+	// device. Resolve it and retry so disk I/O is not silently lost there.
+	if resolved, rerr := filepath.EvalSymlinks(rootDev); rerr == nil {
+		if base, err := BaseDeviceName(resolved); err == nil {
+			s.diskDevice = base
+			return base, nil
+		}
+	}
+	return "", err
 }
 
 func (s *Sampler) refreshSlow() {

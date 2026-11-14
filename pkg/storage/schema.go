@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS nodes (
     node_id    TEXT    PRIMARY KEY,
     token_hash TEXT    NOT NULL,
     first_seen INTEGER NOT NULL,
-    last_seen  INTEGER NOT NULL
+    last_seen  INTEGER NOT NULL,
+    tags       TEXT    NOT NULL DEFAULT ''
 );
 `
 

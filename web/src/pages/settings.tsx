@@ -12,11 +12,12 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { api, type NodeSummary } from "@/lib/api"
-import { timeAgo } from "@/lib/format"
+import { lastSeenAgo } from "@/lib/format"
 
 export function SettingsPage() {
   const [nodes, setNodes] = useState<NodeSummary[] | null>(null)
   const [newId, setNewId] = useState("")
+  const [newTags, setNewTags] = useState("")
   const [created, setCreated] = useState<{
     node_id: string
     token: string
@@ -42,9 +43,14 @@ export function SettingsPage() {
     setError(null)
     setCreated(null)
     try {
-      const resp = await api.createNode(newId.trim())
+      const tags = newTags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean)
+      const resp = await api.createNode(newId.trim(), tags)
       setCreated(resp)
       setNewId("")
+      setNewTags("")
       refresh()
     } catch {
       setError("Could not create node")
@@ -109,6 +115,15 @@ export function SettingsPage() {
                 placeholder="us-west-01"
               />
             </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <Label htmlFor="node-tags">Tags</Label>
+              <Input
+                id="node-tags"
+                value={newTags}
+                onChange={(e) => setNewTags(e.target.value)}
+                placeholder="prod, web (optional)"
+              />
+            </div>
             <Button type="submit" disabled={busy || !newId.trim()}>
               <Plus />
               Add
@@ -157,6 +172,7 @@ export function SettingsPage() {
                 <tr className="border-b border-border text-left text-xs text-muted-foreground">
                   <th className="px-6 py-2 font-medium">Node</th>
                   <th className="px-6 py-2 font-medium">Hostname</th>
+                  <th className="px-6 py-2 font-medium">Tags</th>
                   <th className="px-6 py-2 font-medium">Last seen</th>
                   <th className="px-6 py-2" />
                 </tr>
@@ -170,7 +186,10 @@ export function SettingsPage() {
                     <td className="px-6 py-2 font-mono text-xs">{n.node_id}</td>
                     <td className="px-6 py-2">{n.hostname || "—"}</td>
                     <td className="px-6 py-2 text-muted-foreground">
-                      {timeAgo(n.last_seen)}
+                      {n.tags?.length ? n.tags.join(", ") : "—"}
+                    </td>
+                    <td className="px-6 py-2 text-muted-foreground">
+                      {lastSeenAgo(n.last_seen)}
                     </td>
                     <td className="px-6 py-2 text-right">
                       <Button

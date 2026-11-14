@@ -126,21 +126,57 @@ type CPUInfo struct {
 	Cores int
 }
 
-// ParseCPUInfo reads the first "model name" and counts "processor" entries
-// (one per logical CPU) from /proc/cpuinfo.
+// ParseCPUInfo reads the CPU model and counts logical cores from /proc/cpuinfo.
+// The file's format differs by architecture: x86 exposes "model name", while
+// aarch64 has no model line and instead exposes "CPU implementer"/"CPU part"/
+// "CPU architecture". We fall back through those so ARM hosts still get a
+// non-empty model.
 func ParseCPUInfo(b []byte) CPUInfo {
 	var info CPUInfo
+	var model, hardware, processor, part, arch string
 	for _, line := range strings.Split(string(b), "\n") {
 		k, v, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
 		}
-		switch strings.TrimSpace(k) {
+		key := strings.TrimSpace(k)
+		val := strings.TrimSpace(v)
+		switch key {
 		case "model name":
-			info.Model = strings.TrimSpace(v)
+			if model == "" {
+				model = val
+			}
+		case "Hardware":
+			hardware = val
+		case "Processor":
+			if processor == "" {
+				processor = val
+			}
+		case "CPU part":
+			part = val
+		case "CPU architecture":
+			arch = val
 		case "processor":
 			info.Cores++
 		}
 	}
+	info.Model = firstNonEmpty(model, hardware, processor)
+	if info.Model == "" && arch != "" {
+		info.Model = "ARMv" + arch
+		if part != "" {
+			info.Model += " (" + part + ")"
+		}
+	}
 	return info
+}
+
+// firstNonEmpty returns the first non-empty string in vals, or "" if all are
+// empty.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

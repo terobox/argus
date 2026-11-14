@@ -27,7 +27,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     api
       .me()
       .then((u) => {
-        if (!cancelled) setUsername(u.username)
+        if (!cancelled) {
+          setUsername(u.username)
+          setCsrf(u.csrf_token)
+        }
       })
       .catch(() => {
         if (!cancelled) setUsername(null)

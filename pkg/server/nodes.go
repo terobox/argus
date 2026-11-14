@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/terobox/argus/pkg/auth"
@@ -15,10 +16,12 @@ import (
 // token hash so a viewer cannot reconstruct or leak it. Hostname is empty if the
 // agent never reported host info.
 type nodeView struct {
-	NodeID    string `json:"node_id"`
-	Hostname  string `json:"hostname"`
-	FirstSeen int64  `json:"first_seen"`
-	LastSeen  int64  `json:"last_seen"`
+	NodeID    string   `json:"node_id"`
+	Hostname  string   `json:"hostname"`
+	FirstSeen int64    `json:"first_seen"`
+	LastSeen  int64    `json:"last_seen"`
+	CPUCores  int      `json:"cpu_cores"`
+	Tags      []string `json:"tags"`
 }
 
 func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
@@ -35,21 +38,28 @@ func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
 			Hostname:  n.Hostname,
 			FirstSeen: n.FirstSeen,
 			LastSeen:  n.LastSeen,
+			CPUCores:  n.CPUCores,
+			Tags:      n.Tags,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 // nodeDetail is the JSON shape returned for a single node. HostInfo is nil if
-// the agent never reported host info.
+// the agent never reported host info; LatestSample is nil if it never reported a
+// metric sample.
 type nodeDetail struct {
-	NodeID    string            `json:"node_id"`
-	FirstSeen int64             `json:"first_seen"`
-	LastSeen  int64             `json:"last_seen"`
-	HostInfo  *metrics.HostInfo `json:"host_info,omitempty"`
+	NodeID       string            `json:"node_id"`
+	FirstSeen    int64             `json:"first_seen"`
+	LastSeen     int64             `json:"last_seen"`
+	HostInfo     *metrics.HostInfo `json:"host_info,omitempty"`
+	Tags         []string          `json:"tags"`
+	LatestSample *metrics.Sample   `json:"latest_sample,omitempty"`
 }
 
-// handleNodeDetail returns one node's metadata plus its host info (if reported).
+// handleNodeDetail returns one node's metadata plus its host info (if reported)
+// and its latest sample (so the view has data immediately, before the next live
+// ingest).
 func (s *Server) handleNodeDetail(w http.ResponseWriter, r *http.Request) {
 	nodeID := r.PathValue("node_id")
 	node, ok, err := s.store.GetNode(r.Context(), nodeID)
@@ -69,15 +79,19 @@ func (s *Server) handleNodeDetail(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	out := nodeDetail{NodeID: node.NodeID, FirstSeen: node.FirstSeen, LastSeen: node.LastSeen}
+	out := nodeDetail{NodeID: node.NodeID, FirstSeen: node.FirstSeen, LastSeen: node.LastSeen, Tags: node.Tags}
 	if has {
 		out.HostInfo = &hi
+	}
+	if ls, ok, err := s.store.QueryLatest(r.Context(), nodeID); err == nil && ok {
+		out.LatestSample = &ls
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 type createNodeRequest struct {
-	NodeID string `json:"node_id"`
+	NodeID string   `json:"node_id"`
+	Tags   []string `json:"tags"`
 }
 
 type createNodeResponse struct {
@@ -105,17 +119,33 @@ func (s *Server) handleCreateNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().Unix()
+	// last_seen starts at 0: the node is registered but has not reported yet, so
+	// the dashboard must show it as offline until its first sample arrives. Only
+	// a successful ingest (TouchNode) moves last_seen forward.
 	if err := s.store.UpsertNode(r.Context(), storage.Node{
 		NodeID:    req.NodeID,
 		TokenHash: storage.HashToken(token),
 		FirstSeen: now,
-		LastSeen:  now,
+		LastSeen:  0,
+		Tags:      normalizeTags(req.Tags),
 	}); err != nil {
 		s.logger.Error("create node", "node_id", req.NodeID, "err", err)
 		httpError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusCreated, createNodeResponse{NodeID: req.NodeID, Token: token})
+}
+
+// normalizeTags trims whitespace and drops empty entries, so tags round-trip
+// cleanly and never store a stray blank label.
+func normalizeTags(tags []string) []string {
+	out := make([]string, 0, len(tags))
+	for _, t := range tags {
+		if t = strings.TrimSpace(t); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 type deleteNodeRequest struct {
