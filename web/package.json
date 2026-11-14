@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 8096",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && touch dist/.gitkeep",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
