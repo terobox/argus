@@ -24,7 +24,7 @@ export class ApiError extends Error {
   }
 }
 
-// --- Wire types (mirror pkg/metrics and pkg/server JSON). ---
+// --- Wire types (mirror pkg/metrics and server/internal/api JSON). ---
 
 export interface HostInfo {
   hostname: string

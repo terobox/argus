@@ -54,7 +54,7 @@ export function OverviewPage() {
         </Card>
       ) : (
         <div className="overflow-x-auto">
-          <div className="min-w-[820px]">
+          <div className="min-w-205">
             <div
               className={cn(
                 GRID,

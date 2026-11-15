@@ -2,17 +2,15 @@
 # argus-agent. Both are built as static, cgo-free Linux binaries and published as
 # raw files (no archive wrapper) so install.sh and the agent's self-update can
 # download them directly. See https://goreleaser.com.
+#
+# The frontend is no longer embedded in argus-server. Build it with
+# `pnpm --dir web build` and deploy web/dist separately (static file server,
+# reverse proxy, or the server's web_dir).
 version: 2
-
-# Build the frontend before compiling the server, which embeds web/dist. Run
-# `pnpm install --dir web` once (or via `make deps`) before the first release.
-before:
-  hooks:
-    - pnpm --dir web build
 
 builds:
   - id: server
-    main: ./cmd/server
+    main: ./server/cmd/argus-server
     binary: argus-server
     goos: [linux]
     goarch: [amd64, arm64]
@@ -23,7 +21,7 @@ builds:
       - -X main.serverVersion={{ .Version }}
 
   - id: agent
-    main: ./cmd/agent
+    main: ./agent/cmd/argus-agent
     binary: argus-agent
     goos: [linux]
     goarch: [amd64, arm64]

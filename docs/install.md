@@ -81,9 +81,61 @@ ARGUS_ADMIN_PASSWORD='你的密码' sudo -E bash install-server.sh
 
 安装完成后：
 
-- 打开 `http://<服务器IP>:8095`，用 `admin`（或你指定的用户名）与刚才的密码登录。
+- 先按下一节部署前端（server 二进制不再内嵌页面）。
+- 用 `admin`（或你指定的用户名）与刚才的密码登录 Web 界面。
 - 在 Web 界面「Settings」页创建节点，得到 node-id 与 token（**token 只显示一次**）。
 - 首次登录成功后，可删除 `/etc/argus/server.env`（初始管理员已写入数据库）。
+
+## 前端（Web 界面）部署
+
+`argus-server` 二进制**不再内嵌前端**。安装 server 后 API 已可用，但
+`http://<服务器IP>:8095` 不会直接显示界面。二选一：
+
+### 方式 A：反向代理（生产推荐）
+
+构建前端（需要 pnpm）：
+
+```bash
+pnpm --dir web build
+```
+
+把 `web/dist` 部署到 Web 服务器（例如 Nginx 的 `/usr/share/argus/web`），
+静态文件由 Nginx 提供，`/api` 反代到 `127.0.0.1:8095`：
+
+```nginx
+server {
+    listen 80;
+    root /usr/share/argus/web;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8095;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_buffering off;          # SSE 实时流
+        proxy_read_timeout 1h;
+    }
+
+    location / {
+        try_files $uri /index.html;   # SPA fallback
+    }
+}
+```
+
+### 方式 B：server 直接托管
+
+把 `web/dist` 放到服务器（例如 `/opt/argus/web`），在
+`/etc/argus/server.yaml` 中设置：
+
+```yaml
+web_dir: /opt/argus/web
+```
+
+重启服务后访问 `http://<服务器IP>:8095`。systemd 单元启用了
+`ProtectSystem=strict`，该目录可读即可。默认值 `web/dist` 是相对路径
+（相对进程工作目录），systemd 下请写成绝对路径。
+
+> 当前安装脚本只安装 Go 二进制，尚未自动分发前端；静态文件需手动部署
+> （或由后续调整的发版流水线提供）。
 
 ## 安装 agent
 
@@ -131,6 +183,7 @@ sudo bash install-agent.sh --server http://<服务器IP>:8095 --node-id <node-id
 | --- | --- | --- |
 | `listen_addr` | `:8095` | 监听地址 |
 | `db_path` | `argus.db` | SQLite 文件路径 |
+| `web_dir` | `web/dist` | 前端静态文件目录；设为空字符串表示只提供 API |
 | `job_interval` | `15s` | 后台任务（告警评估、过期清理）周期 |
 | `session_ttl` | `168h` | 登录会话有效期 |
 | `cookie_secure` | `false` | HTTPS 下应设为 `true` |

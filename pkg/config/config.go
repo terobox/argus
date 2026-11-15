@@ -1,5 +1,5 @@
-// Package config holds the agent's (and later the server's) on-disk YAML
-// configuration, plus the shared loading and duration helpers.
+// Package config holds helpers shared by the agent and server configuration
+// loaders: the YAML Duration type and the non-strict file loader.
 package config
 
 import (

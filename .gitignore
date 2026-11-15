@@ -17,3 +17,4 @@ _notes
 # Env / secrets
 .env
 .env.*
+*.local.yaml
