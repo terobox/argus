@@ -101,6 +101,25 @@ func TestBlockDeviceByNameRejectsJunk(t *testing.T) {
 	}
 }
 
+// TestSysblockPhysicalDisks checks the live system: every disk returned by
+// sysblockPhysicalDisks must exist in /proc/diskstats. Skips when /sys/block
+// is not accessible (containers without sysfs).
+func TestSysblockPhysicalDisks(t *testing.T) {
+	disks := sysblockPhysicalDisks()
+	if disks == nil {
+		t.Skip("/sys/block not available")
+	}
+	stats, err := parseProc("diskstats", ParseDiskstats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range disks {
+		if _, ok := stats[name]; !ok {
+			t.Errorf("sysblock disk %q not found in /proc/diskstats", name)
+		}
+	}
+}
+
 // TestRootBlockDeviceResolvesToDiskstats checks the end-to-end invariant that
 // matters: the resolved name must be a /proc/diskstats entry, because that is
 // what diskIO indexes. It skips on hosts whose root has no block device

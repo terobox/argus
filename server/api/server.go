@@ -75,7 +75,10 @@ func (s *Server) Handler() http.Handler {
 
 // maxBodyBytes caps agent ingest payload size to prevent memory exhaustion from
 // a misbehaving or malicious agent.
-const maxBodyBytes = 1 << 20 // 1 MiB
+const (
+	maxBodyBytes             = 1 << 20 // 1 MiB compressed
+	maxDecompressedBodyBytes = 4 << 20 // 4 MiB; prevents zip-bomb DoS on decompression
+)
 
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	body := io.Reader(http.MaxBytesReader(w, r.Body, maxBodyBytes))
@@ -87,7 +90,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer zr.Close()
-		body = zr
+		body = io.LimitReader(zr, maxDecompressedBodyBytes)
 	}
 
 	var rep protocol.Report

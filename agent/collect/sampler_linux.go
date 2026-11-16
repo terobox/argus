@@ -163,15 +163,30 @@ func (s *Sampler) primaryIface() (string, error) {
 	return iface, nil
 }
 
-// diskIO returns cumulative disk I/O for the root device. When the root
-// filesystem exposes no block device (ZFS pools, overlayfs containers), it falls
-// back to the sum of whole physical disks so the dashboard still reflects real
-// hardware I/O instead of a permanent zero. It is a best-effort metric: errors
-// never fail the sample.
+// diskIO returns cumulative disk I/O summed across all hardware-backed block
+// devices. Summing all physical disks rather than only the root device means
+// machines with a separate data disk — or where root I/O is near-zero — still
+// show real workload activity. It is a best-effort metric: errors never fail
+// the sample.
+//
+// Lookup strategy (first success wins):
+//  1. /sys/block/<dev>/device — enumerates hardware whole disks; most reliable.
+//  2. rootDevice() + diskstats — used when /sys/block is unavailable.
+//  3. sumWholeDisks — name-heuristic fallback of last resort.
 func (s *Sampler) diskIO() metrics.DiskIO {
 	stats, err := parseProc("diskstats", ParseDiskstats)
 	if err != nil {
 		return metrics.DiskIO{}
+	}
+	if disks := sysblockPhysicalDisks(); len(disks) > 0 {
+		var io metrics.DiskIO
+		for _, name := range disks {
+			if d, ok := stats[name]; ok {
+				io.ReadBytes += d.ReadBytes
+				io.WriteBytes += d.WriteBytes
+			}
+		}
+		return io
 	}
 	if dev, err := s.rootDevice(); err == nil {
 		if d, ok := stats[dev]; ok {
@@ -179,6 +194,36 @@ func (s *Sampler) diskIO() metrics.DiskIO {
 		}
 	}
 	return sumWholeDisks(stats)
+}
+
+// sysblockPhysicalDisks returns the kernel names of hardware-backed whole block
+// devices from /sys/block/. Two properties make this more reliable than
+// filtering /proc/diskstats by name:
+//
+//  1. /sys/block/ lists only whole disks — partitions (sda1, nvme0n1p1, …)
+//     never appear there, so double-counting is structurally impossible.
+//  2. The "device" subdirectory exists only for hardware-backed disks. Virtual
+//     layers (dm-*, md*, loop*, zram, …) have no such link and are excluded
+//     without any name-based guessing.
+//
+// Returns nil when /sys/block/ is inaccessible (some container environments).
+func sysblockPhysicalDisks() []string {
+	entries, err := os.ReadDir("/sys/block")
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		name := e.Name()
+		if isVirtualDiskName(name) {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join("/sys/block", name, "device")); err != nil {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
 }
 
 // sumWholeDisks adds up the counters of every whole physical disk in
