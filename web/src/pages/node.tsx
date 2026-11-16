@@ -12,7 +12,13 @@ import {
 import { MetricChart, MultiLineChart, Sparkline } from "@/components/chart"
 import { api, type NodeDetail, type SeriesPoint } from "@/lib/api"
 import { useSampleStream } from "@/lib/sse"
-import { formatBytes, formatPercent, formatRate, lastSeenAgo, timeAgo } from "@/lib/format"
+import {
+  formatBytes,
+  formatPercent,
+  formatRate,
+  lastSeenAgo,
+  timeAgo,
+} from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 const RANGES = [
@@ -23,7 +29,37 @@ const RANGES = [
   { label: "30d", seconds: 30 * 24 * 3600 },
 ]
 
+// SeriesData is the loaded chart series plus the node/range it belongs to, so
+// a stale response can be ignored and an old window never labels new data.
+type SeriesData = {
+  key: string
+  points: SeriesPoint[]
+  resolution: string
+  window: [number, number]
+}
+
 const ONLINE_AFTER = 90 // seconds
+
+// CHART_REFRESH_MS re-anchors the charts to "the last N" while the page stays
+// open. Without it the window freezes at page load and slowly drifts into the
+// past.
+const CHART_REFRESH_MS = 30_000
+
+// gapForResolution returns the sample spacing, per tier, that counts as an
+// outage rather than normal jitter. A longer gap is drawn as a break in the
+// line instead of being bridged.
+function gapForResolution(resolution: string): number {
+  switch (resolution) {
+    case "1s":
+      return 5
+    case "15s":
+      return 45
+    case "5m":
+      return 600
+    default:
+      return 0
+  }
+}
 
 // Gauge threshold colors — traffic-light style.
 function gaugeColor(percent: number | undefined): string {
@@ -44,6 +80,7 @@ function RingGauge({
   accessor,
   color,
   loading,
+  gapSeconds,
 }: {
   label: string
   value: string
@@ -53,6 +90,7 @@ function RingGauge({
   accessor: (p: SeriesPoint) => number
   color: string
   loading?: boolean
+  gapSeconds?: number
 }) {
   const r = 26
   const circ = 2 * Math.PI * r
@@ -63,7 +101,7 @@ function RingGauge({
   if (loading) {
     return (
       <Card>
-        <CardContent className="py-3 px-4">
+        <CardContent className="px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="size-16 shrink-0 animate-pulse rounded-full bg-muted" />
             <div className="flex-1 space-y-2">
@@ -79,16 +117,11 @@ function RingGauge({
 
   return (
     <Card>
-      <CardContent className="py-3 px-4">
+      <CardContent className="px-4 py-3">
         <div className="flex items-center gap-3">
           {/* Circular ring */}
           <div className="relative shrink-0">
-            <svg
-              width={64}
-              height={64}
-              viewBox="0 0 64 64"
-              aria-hidden="true"
-            >
+            <svg width={64} height={64} viewBox="0 0 64 64" aria-hidden="true">
               {/* Track */}
               <circle
                 cx={32}
@@ -120,7 +153,10 @@ function RingGauge({
             <div className="absolute inset-0 flex items-center justify-center">
               <span
                 className="text-xs font-bold tabular-nums"
-                style={{ color: percent !== undefined ? ring : "var(--muted-foreground)" }}
+                style={{
+                  color:
+                    percent !== undefined ? ring : "var(--muted-foreground)",
+                }}
               >
                 {percent !== undefined ? `${Math.round(percent)}%` : "—"}
               </span>
@@ -133,7 +169,7 @@ function RingGauge({
               {value}
             </p>
             {sub && (
-              <p className="truncate text-[11px] tabular-nums text-muted-foreground">
+              <p className="truncate text-[11px] text-muted-foreground tabular-nums">
                 {sub}
               </p>
             )}
@@ -141,7 +177,13 @@ function RingGauge({
         </div>
         {points.length > 0 && (
           <div className="mt-2 h-7 w-full">
-            <Sparkline points={points} accessor={accessor} color={color} height={28} />
+            <Sparkline
+              points={points}
+              accessor={accessor}
+              color={color}
+              height={28}
+              gapSeconds={gapSeconds}
+            />
           </div>
         )}
       </CardContent>
@@ -195,7 +237,7 @@ function NodeStatus({
       <span
         className={cn(
           "mr-1 inline-block size-1.5 rounded-full align-middle",
-          online ? "bg-emerald-500" : "bg-muted-foreground",
+          online ? "bg-emerald-500" : "bg-muted-foreground"
         )}
       />
       {online ? "online" : "offline"} · last report{" "}
@@ -211,9 +253,17 @@ export function NodePage() {
   const [detail, setDetail] = useState<NodeDetail | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [range, setRange] = useState(RANGES[0].seconds)
-  const [points, setPoints] = useState<SeriesPoint[]>([])
-  const [resolution, setResolution] = useState("")
+  const [series, setSeries] = useState<SeriesData | null>(null)
   const { sample } = useSampleStream(id)
+
+  // Derive the visible series instead of clearing state inside the effect: when
+  // the node or range changes, the old data no longer matches and the charts
+  // render empty until the new response arrives.
+  const seriesKey = `${id}:${range}`
+  const active = series?.key === seriesKey ? series : null
+  const points = active?.points ?? []
+  const resolution = active?.resolution ?? ""
+  const chartWindow = active?.window ?? null
 
   useEffect(() => {
     let cancelled = false
@@ -232,20 +282,34 @@ export function NodePage() {
 
   useEffect(() => {
     let cancelled = false
-    const to = Math.floor(Date.now() / 1000)
-    const from = to - range
-    api
-      .series(id, from, to)
-      .then((r) => {
-        if (cancelled) return
-        setPoints(r.points)
-        setResolution(r.resolution)
-      })
-      .catch(() => {
-        if (!cancelled) setPoints([])
-      })
+    const key = `${id}:${range}`
+
+    const load = () => {
+      const to = Math.floor(Date.now() / 1000)
+      const from = to - range
+      api
+        .series(id, from, to)
+        .then((r) => {
+          if (cancelled) return
+          // Pin the axis to this absolute window, even when the agent has been
+          // offline: the empty right-hand side is the point.
+          setSeries({
+            key,
+            points: r.points,
+            resolution: r.resolution,
+            window: [from, to],
+          })
+        })
+        .catch(() => {
+          // Keep the previous series on a transient refresh failure; the
+          // derived `active` check shows empty only until the first success.
+        })
+    }
+    load()
+    const timer = setInterval(load, CHART_REFRESH_MS)
     return () => {
       cancelled = true
+      clearInterval(timer)
     }
   }, [id, range])
 
@@ -262,6 +326,7 @@ export function NodePage() {
   // ONLINE_AFTER. Judge freshness by the newest sample instead.
   const lastSeen = live?.ts ? live.ts : detail?.last_seen
   const detailLoading = detail === null && !notFound
+  const gapSeconds = gapForResolution(resolution)
 
   // Derive a rough "load saturation" percentage from load1 / cpu_cores.
   const loadPercent =
@@ -310,6 +375,7 @@ export function NodePage() {
           accessor={(p) => p.cpu}
           color="var(--chart-1)"
           loading={detailLoading}
+          gapSeconds={gapSeconds}
         />
         <RingGauge
           label="Memory"
@@ -324,6 +390,7 @@ export function NodePage() {
           accessor={(p) => p.mem_used}
           color="var(--chart-2)"
           loading={detailLoading}
+          gapSeconds={gapSeconds}
         />
         <RingGauge
           label="Disk"
@@ -342,6 +409,7 @@ export function NodePage() {
           accessor={(p) => p.disk_used ?? 0}
           color="var(--chart-3)"
           loading={detailLoading}
+          gapSeconds={gapSeconds}
         />
         <RingGauge
           label="Load"
@@ -356,6 +424,7 @@ export function NodePage() {
           accessor={(p) => p.load1}
           color="var(--chart-4)"
           loading={detailLoading}
+          gapSeconds={gapSeconds}
         />
       </div>
 
@@ -400,6 +469,8 @@ export function NodePage() {
           <MetricChart
             points={points}
             accessor={(p) => p.cpu}
+            domain={chartWindow ?? undefined}
+            gapSeconds={gapSeconds}
             name="cpu"
             color="var(--chart-1)"
             format={formatPercent}
@@ -414,6 +485,8 @@ export function NodePage() {
         <CardContent>
           <MultiLineChart
             points={points}
+            domain={chartWindow ?? undefined}
+            gapSeconds={gapSeconds}
             series={[
               {
                 key: "l1",
@@ -447,6 +520,8 @@ export function NodePage() {
           <MetricChart
             points={points}
             accessor={(p) => p.mem_used}
+            domain={chartWindow ?? undefined}
+            gapSeconds={gapSeconds}
             name="mem"
             color="var(--chart-2)"
             format={formatBytes}
@@ -462,6 +537,8 @@ export function NodePage() {
         <CardContent>
           <MultiLineChart
             points={points}
+            domain={chartWindow ?? undefined}
+            gapSeconds={gapSeconds}
             format={formatRate}
             series={[
               {
@@ -489,6 +566,8 @@ export function NodePage() {
         <CardContent>
           <MultiLineChart
             points={points}
+            domain={chartWindow ?? undefined}
+            gapSeconds={gapSeconds}
             format={formatRate}
             series={[
               {
