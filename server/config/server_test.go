@@ -33,6 +33,16 @@ func TestLoadServerDefaults(t *testing.T) {
 	}
 }
 
+// TestLoadServerIgnoresRemovedWebDir documents the compatibility behavior of
+// the non-strict loader: configs written for older releases may still carry
+// web_dir, which is now ignored instead of rejected.
+func TestLoadServerIgnoresRemovedWebDir(t *testing.T) {
+	path := writeConfig(t, "web_dir: web/dist\n")
+	if _, err := LoadServer(path); err != nil {
+		t.Fatalf("legacy web_dir key must be ignored: %v", err)
+	}
+}
+
 func TestLoadServerOverrides(t *testing.T) {
 	path := writeConfig(t, "listen_addr: 127.0.0.1:8095\ndb_path: /var/lib/argus/argus.db\njob_interval: 30s\n")
 	cfg, err := LoadServer(path)

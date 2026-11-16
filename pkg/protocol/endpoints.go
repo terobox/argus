@@ -12,13 +12,19 @@ const HostPath = "/api/v1/host"
 const NodeTokenHeader = "X-Node-Token"
 
 // Admin API endpoints used by the web UI. The agent does not call these; they
-// are shared constants so the server's routes and the embedded UI cannot drift
-// out of sync.
+// are shared constants so the server's routes and the web UI cannot drift out
+// of sync.
 const (
 	LoginPath  = "/api/v1/auth/login"
 	LogoutPath = "/api/v1/auth/logout"
 	MePath     = "/api/v1/auth/me"
 	NodesPath  = "/api/v1/nodes"
+
+	// SetupPath creates the first admin when the database has none, and
+	// SetupStatusPath reports whether that is still possible. Both are public
+	// because they must work before any account exists.
+	SetupPath       = "/api/v1/setup"
+	SetupStatusPath = "/api/v1/setup/status"
 
 	// NodeDetailPath is the mux pattern for a single node's detail (host info);
 	// {node_id} is a path value.

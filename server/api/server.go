@@ -4,11 +4,13 @@ package api
 
 import (
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/terobox/argus/pkg/protocol"
 	"github.com/terobox/argus/server/alert"
@@ -23,21 +25,30 @@ type Server struct {
 	alerts *alert.Evaluator
 	hub    *hub
 	latest *latestStore
-	ui     http.Handler
 	logger *slog.Logger
 }
 
 // New returns a Server backed by store and a. alerts may be nil to disable
-// alerting. webDir is the on-disk directory holding the built frontend; when it
-// is empty or missing the server serves the API only (the Vite dev server
-// proxies /api to it during local development).
-func New(store *storage.Store, logger *slog.Logger, a *auth.Auth, alerts *alert.Evaluator, webDir string) *Server {
-	return &Server{store: store, auth: a, alerts: alerts, hub: newHub(), latest: newLatestStore(), ui: NewUIHandler(webDir), logger: logger}
+// alerting. The server is API-only: the dashboard is a separate static site
+// served by nginx in production and by Vite during local development.
+func New(store *storage.Store, logger *slog.Logger, a *auth.Auth, alerts *alert.Evaluator) *Server {
+	return &Server{store: store, auth: a, alerts: alerts, hub: newHub(), latest: newLatestStore(), logger: logger}
 }
 
 // Handler returns the HTTP handler with all routes registered.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+
+	// Liveness for load balancers and the deploy health check (no auth).
+	mux.HandleFunc("GET /healthz", s.handleHealthz)
+
+	// Human-readable landing page for anyone opening the API port directly.
+	// The exact "{$}" pattern keeps unknown paths at 404.
+	mux.HandleFunc("GET /{$}", s.handleRoot)
+
+	// First-run setup: public only while the database has no admin.
+	mux.HandleFunc("GET "+protocol.SetupStatusPath, s.auth.HandleSetupStatus)
+	mux.HandleFunc("POST "+protocol.SetupPath, s.auth.HandleSetup)
 
 	// Agent ingest.
 	mux.HandleFunc("POST "+protocol.IngestPath, s.handleReport)
@@ -57,9 +68,6 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET "+protocol.NodeDetailPath, s.auth.RequireAdmin(http.HandlerFunc(s.handleNodeDetail)))
 	mux.Handle("GET "+protocol.SeriesPath, s.auth.RequireAdmin(http.HandlerFunc(s.handleSeries)))
 	mux.Handle("GET "+protocol.StreamPath, s.auth.RequireAdmin(http.HandlerFunc(s.handleStream)))
-
-	// Embedded web UI (SPA fallback) as the catch-all.
-	mux.Handle("/", s.ui)
 
 	return mux
 }
@@ -127,4 +135,33 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 
 func httpError(w http.ResponseWriter, code int, msg string) {
 	http.Error(w, msg, code)
+}
+
+// handleRoot answers GET / with a short welcome message instead of the
+// ServeMux's bare 404, so an operator who opens the API port learns what the
+// process is and where the dashboard lives. It does not touch the database.
+func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message":    "Welcome to Argus",
+		"repository": "https://github.com/terobox/argus",
+	})
+}
+
+// handleHealthz reports liveness for load balancers and the deploy health
+// check. It is unauthenticated and deliberately says nothing about the node
+// inventory or other internals: it only confirms the process is up and the
+// database is reachable, so a release with a broken database fails its health
+// check and the deploy tool can roll it back.
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	// The database is opened with a single connection and a 5s busy timeout,
+	// so give the probe the same budget: a transient long write should not make
+	// a healthy deploy fail its health check and roll back.
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.store.Ping(ctx); err != nil {
+		s.logger.Warn("health check: database unreachable", "err", err)
+		httpError(w, http.StatusServiceUnavailable, "database unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

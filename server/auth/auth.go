@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -19,6 +20,35 @@ const (
 	loginRateWindow   = time.Minute
 	maxLoginBodyBytes = 4 << 10 // 4 KiB — far more than a username+password needs
 )
+
+// Admin credential limits. bcrypt refuses inputs longer than 72 bytes, so check
+// up front and return a clear error instead of a hashing failure.
+const (
+	maxUsernameLen   = 64
+	minPasswordBytes = 8
+	maxPasswordBytes = 72
+)
+
+func validateUsername(username string) error {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return fmt.Errorf("username is required")
+	}
+	if len(username) > maxUsernameLen {
+		return fmt.Errorf("username must be at most %d characters", maxUsernameLen)
+	}
+	return nil
+}
+
+func validatePassword(password string) error {
+	if len(password) < minPasswordBytes {
+		return fmt.Errorf("password must be at least %d characters", minPasswordBytes)
+	}
+	if len(password) > maxPasswordBytes {
+		return fmt.Errorf("password must be at most %d bytes", maxPasswordBytes)
+	}
+	return nil
+}
 
 // Auth bundles login/logout handling, session management, CSRF, and the
 // middleware applied to protected routes.
@@ -128,6 +158,91 @@ func (a *Auth) HandleMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleSetupStatus reports whether the first-run setup is still available,
+// i.e. whether the database has no admin yet. It is public because it must work
+// before any account exists, and it deliberately reveals nothing else.
+func (a *Auth) HandleSetupStatus(w http.ResponseWriter, r *http.Request) {
+	n, err := a.store.CountAdmins(r.Context())
+	if err != nil {
+		a.logger.Error("count admins", "err", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]bool{"setup_required": n == 0})
+}
+
+// HandleSetup creates the first admin and signs it in, so the setup wizard can
+// drop the operator straight into the dashboard. It is a no-op returning 409
+// once any admin exists: CreateInitialAdmin decides that atomically, which also
+// makes two concurrent first-setup requests safe.
+func (a *Auth) HandleSetup(w http.ResponseWriter, r *http.Request) {
+	if !a.limiter.Allow("setup|" + clientIP(r)) {
+		httpError(w, http.StatusTooManyRequests, "too many attempts; try again later")
+		return
+	}
+
+	n, err := a.store.CountAdmins(r.Context())
+	if err != nil {
+		a.logger.Error("count admins", "err", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if n > 0 {
+		httpError(w, http.StatusConflict, "setup already completed")
+		return
+	}
+
+	var req loginRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxLoginBodyBytes)).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	req.Username = strings.TrimSpace(req.Username)
+	if err := validateUsername(req.Username); err != nil {
+		httpError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validatePassword(req.Password); err != nil {
+		httpError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	hash, err := HashPassword(req.Password)
+	if err != nil {
+		a.logger.Error("hash setup password", "err", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	created, err := a.store.CreateInitialAdmin(r.Context(), storage.Admin{
+		Username:     req.Username,
+		PasswordHash: hash,
+		CreatedAt:    time.Now().Unix(),
+	})
+	if err != nil {
+		a.logger.Error("create initial admin", "err", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if !created {
+		httpError(w, http.StatusConflict, "setup already completed")
+		return
+	}
+
+	token, csrf, err := a.sessions.Create(r.Context(), req.Username)
+	if err != nil {
+		// The admin now exists, so the client can simply fall back to login.
+		a.logger.Error("create setup session", "err", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	a.setSessionCookie(w, token, int(a.ttl.Seconds()))
+	writeJSON(w, http.StatusOK, map[string]string{
+		"username":   req.Username,
+		"csrf_token": csrf,
+	})
+}
+
 // Sweep removes expired sessions and stale rate-limit keys. Call periodically.
 func (a *Auth) Sweep(ctx context.Context) {
 	a.sessions.Sweep(ctx)
@@ -149,12 +264,21 @@ func (a *Auth) setSessionCookie(w http.ResponseWriter, value string, maxAge int)
 // Bootstrap creates the initial admin if none exists, using the given password.
 // It is a no-op when password is empty (no admin is configured) or an admin
 // already exists (so a restart never silently resets the password). It reports
-// whether an admin was created.
+// whether an admin was created. This is the headless alternative to the web
+// setup wizard, driven by ARGUS_ADMIN_USERNAME/ARGUS_ADMIN_PASSWORD.
 func Bootstrap(ctx context.Context, store *storage.Store, username, password string) (bool, error) {
 	username = strings.TrimSpace(username)
 	if username == "" || password == "" {
 		return false, nil
 	}
+	if err := validateUsername(username); err != nil {
+		return false, fmt.Errorf("bootstrap admin: %w", err)
+	}
+	if err := validatePassword(password); err != nil {
+		return false, fmt.Errorf("bootstrap admin: %w", err)
+	}
+	// Skip the expensive hash when an admin already exists; CreateInitialAdmin
+	// below is still the atomic authority on "first admin".
 	n, err := store.CountAdmins(ctx)
 	if err != nil {
 		return false, err
@@ -166,14 +290,11 @@ func Bootstrap(ctx context.Context, store *storage.Store, username, password str
 	if err != nil {
 		return false, err
 	}
-	if err := store.UpsertAdmin(ctx, storage.Admin{
+	return store.CreateInitialAdmin(ctx, storage.Admin{
 		Username:     username,
 		PasswordHash: hash,
 		CreatedAt:    time.Now().Unix(),
-	}); err != nil {
-		return false, err
-	}
-	return true, nil
+	})
 }
 
 func clientIP(r *http.Request) string {

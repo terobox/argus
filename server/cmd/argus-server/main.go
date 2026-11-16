@@ -1,6 +1,6 @@
 // Command argus-server runs the argus central server: it ingests agent
-// reports, serves the admin API, and optionally serves a prebuilt frontend
-// directory (web_dir) as the dashboard.
+// reports and serves the admin API. The dashboard is a separate static web app
+// served by nginx in production and by Vite during local development.
 package main
 
 import (
@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -34,13 +35,14 @@ func main() {
 	}
 }
 
-// run dispatches the "update" and "version" subcommands and otherwise runs the
-// server with the standard -config flag.
+// run dispatches the "version" subcommand and otherwise runs the server with
+// the standard -config flag. Version management belongs to the deployment tool
+// (shipit), not to the server binary, so there is deliberately no "update".
 func run(args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
 		case "update":
-			return runUpdate()
+			return fmt.Errorf("argus-server is deployed and updated by shipit; on the server run: sudo shipit deploy argus-server")
 		case "version":
 			fmt.Println(serverVersion)
 			return nil
@@ -48,7 +50,7 @@ func run(args []string) error {
 	}
 
 	fs := flag.NewFlagSet("argus-server", flag.ExitOnError)
-	configPath := fs.String("config", "server.yaml", "path to the server config file")
+	configPath := fs.String("config", "server/config.local.yaml", "path to the server config file")
 	fs.Parse(args)
 	return runServer(*configPath)
 }
@@ -56,6 +58,9 @@ func run(args []string) error {
 func runServer(configPath string) error {
 	cfg, err := config.LoadServer(configPath)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("%w\nhint: run `make run-server` to create a local config, or pass -config <path>", err)
+		}
 		return err
 	}
 
@@ -83,18 +88,12 @@ func runServer(configPath string) error {
 	if n, err := store.CountAdmins(context.Background()); err != nil {
 		return err
 	} else if n == 0 {
-		slog.Warn("no admin configured; set ARGUS_ADMIN_PASSWORD to create one on next start")
+		slog.Warn("no admin configured; complete first-time setup in the web UI, " +
+			"or set ARGUS_ADMIN_PASSWORD to create one on next start")
 	}
 
 	authSvc := auth.New(store, slog.Default(), cfg.CookieSecure, cfg.SessionTTL.D())
-	if cfg.WebDir != "" {
-		if info, err := os.Stat(cfg.WebDir); err != nil || !info.IsDir() {
-			slog.Warn("web UI directory not found; serving API only", "web_dir", cfg.WebDir)
-		}
-	} else {
-		slog.Info("web UI disabled (web_dir is empty); serve the frontend separately")
-	}
-	srv := api.New(store, slog.Default(), authSvc, buildAlerts(store, cfg.Alert, slog.Default()), cfg.WebDir)
+	srv := api.New(store, slog.Default(), authSvc, buildAlerts(store, cfg.Alert, slog.Default()))
 	hs := &http.Server{
 		Addr:              cfg.ListenAddr,
 		Handler:           srv.Handler(),

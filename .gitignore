@@ -17,4 +17,5 @@ _notes
 # Env / secrets
 .env
 .env.*
+!web/.env.example
 *.local.yaml

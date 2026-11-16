@@ -26,27 +26,36 @@ pnpm --dir web install
 
 ## 2. 本地 server 配置
 
-在仓库根目录创建 `server.local.yaml`（已被 `.gitignore` 忽略）：
+配置示例提交在 `server/config.example.yaml`。`make run-server` 会在
+`server/config.local.yaml` 不存在时自动复制一份（该文件已被 `.gitignore` 的
+`*.local.yaml` 忽略）；需要改监听地址或数据库路径时编辑它。
 
-```yaml
-listen_addr: ":8095"        # 监听所有网卡，远程主机才连得进来
-db_path: "argus.local.db"   # 本地开发数据库，已被 .gitignore 忽略
-web_dir: ""                 # 前端交给 Vite，server 不托管静态文件
-cookie_secure: false        # 本地是 http://localhost
-```
+默认关键项：
+
+- `listen_addr: ":8095"`：监听所有网卡，远程 agent 才连得进来
+- `db_path: "server/argus.local.db"`：相对仓库根目录（`make` 的工作目录），已被忽略
+- `cookie_secure: false`：本地是 http://localhost
 
 ## 3. 启动
 
 终端 A（server）：
 
 ```bash
-ARGUS_ADMIN_USERNAME=admin ARGUS_ADMIN_PASSWORD='dev-password' \
-  go run ./server/cmd/argus-server -config server.local.yaml
-# 或：ARGUS_ADMIN_PASSWORD='dev-password' make run-server CONFIG=server.local.yaml
+make run-server
+
+# 等价的直接调用（配置需已存在）：
+go run ./server/cmd/argus-server -config server/config.local.yaml
 ```
 
-> 初始管理员只在「数据库里还没有任何管理员」时创建；之后修改环境变量不再生效。
-> 想重置：停掉 server，删除 `argus.local.db*` 后再启动。
+> 首次启动时数据库里没有管理员，打开前端（8096）会进入初始化页设置用户名和
+> 密码。也可以在启动时用环境变量直接播种管理员、跳过初始化页：
+>
+> ```bash
+> ARGUS_ADMIN_USERNAME=admin ARGUS_ADMIN_PASSWORD='dev-password' make run-server
+> ```
+>
+> 想重置本地环境：停掉 server，删除 `server/argus.local.db`（以及同名的
+> `-wal`/`-shm`）后再启动。
 
 终端 B（前端）：
 
@@ -54,13 +63,20 @@ ARGUS_ADMIN_USERNAME=admin ARGUS_ADMIN_PASSWORD='dev-password' \
 pnpm --dir web dev        # 等价于 make run-web
 ```
 
-如果 server 不在 `127.0.0.1:8095`，用环境变量覆盖代理目标：
+如果 server 不在 `127.0.0.1:8095`，把 `web/.env.example` 复制为 `web/.env.local`
+并修改其中的 `ARGUS_SERVER_URL`（`.env.local` 已被忽略）：
 
 ```bash
-ARGUS_SERVER_URL=http://127.0.0.1:18095 pnpm --dir web dev
+cp web/.env.example web/.env.local
+# 编辑 web/.env.local：ARGUS_SERVER_URL=http://127.0.0.1:18095
+pnpm --dir web dev
 ```
 
-打开 `http://localhost:8096` 登录，在 Settings 页创建节点，记下 node-id 与 token
+临时覆盖也可以直接用同名环境变量：
+`ARGUS_SERVER_URL=http://127.0.0.1:18095 pnpm --dir web dev`。
+
+首次打开 `http://localhost:8096` 会进入初始化页，设置管理员用户名和密码（至少 8
+位）；创建后自动登录。之后在 Settings 页创建节点，记下 node-id 与 token
 （token 只显示一次）。
 
 ## 4. 让远程主机连到你的 Mac
@@ -136,8 +152,8 @@ sudo /usr/local/bin/argus-agent -config /etc/argus/agent.yaml
 
 - 打开 `http://localhost:8096`，Overview 应在约 15s 内出现远程节点，曲线实时滚动。
 - DevTools → Network 中的 `stream` 请求应保持 pending（SSE 经过 Vite 代理正常）。
-- 前端只连 8096；如果直接打开 `http://localhost:8095`，本地 `web_dir` 为空，
-  只有 API，页面会是 404，这是预期行为。
+- 前端只连 8096。server 现在只提供 API，直接打开 `http://localhost:8095/`
+  会返回一条 welcome JSON 消息，这是预期行为。
 
 ## 常见问题
 

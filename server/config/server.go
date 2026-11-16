@@ -17,7 +17,6 @@ type Duration = base.Duration
 type ServerConfig struct {
 	ListenAddr   string      `yaml:"listen_addr"`
 	DBPath       string      `yaml:"db_path"`
-	WebDir       string      `yaml:"web_dir"`
 	JobInterval  Duration    `yaml:"job_interval"`
 	SessionTTL   Duration    `yaml:"session_ttl"`
 	CookieSecure bool        `yaml:"cookie_secure"`
@@ -29,7 +28,6 @@ func DefaultServer() ServerConfig {
 	return ServerConfig{
 		ListenAddr:   ":8095",
 		DBPath:       "argus.db",
-		WebDir:       "web/dist", // static frontend; empty disables the built-in UI
 		JobInterval:  Duration(15 * time.Second),
 		SessionTTL:   Duration(7 * 24 * time.Hour),
 		CookieSecure: false, // true when serving over HTTPS

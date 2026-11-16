@@ -12,8 +12,9 @@ import (
 // selfupdateRepo is the GitHub repository the release assets are published to.
 const selfupdateRepo = "terobox/argus"
 
-// assetName returns the release asset name goreleaser produces for this build
-// (see the archives name_template in .goreleaser.yaml).
+// assetName returns the release asset name scripts/package.sh builds for this
+// binary. It is a raw executable (not an archive) because install-agent.sh and
+// this updater download it directly.
 func assetName() string {
 	return fmt.Sprintf("argus-agent_%s_%s", runtime.GOOS, runtime.GOARCH)
 }

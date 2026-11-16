@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/terobox/argus/pkg/metrics"
@@ -31,7 +32,165 @@ func newTestServer(t *testing.T) (*Server, *storage.Store) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	a := auth.New(store, logger, false, auth.DefaultSessionTTL)
-	return New(store, logger, a, nil, ""), store
+	return New(store, logger, a, nil), store
+}
+
+// TestUnknownRoutes pins the behavior of the API-only mux: there is no SPA
+// catch-all, unknown paths 404, the root is a plain-text welcome, and a known
+// path with the wrong method gets the ServeMux 405.
+func TestUnknownRoutes(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := s.Handler()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		want   int
+	}{
+		{"root", http.MethodGet, "/", http.StatusOK},
+		{"root wrong method", http.MethodPut, "/", http.StatusMethodNotAllowed},
+		{"unknown api", http.MethodGet, "/api/v1/unknown", http.StatusNotFound},
+		{"wrong method", http.MethodPut, protocol.NodesPath, http.StatusMethodNotAllowed},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, httptest.NewRequest(tt.method, tt.path, nil))
+			if rr.Code != tt.want {
+				t.Fatalf("%s %s = %d, want %d", tt.method, tt.path, rr.Code, tt.want)
+			}
+		})
+	}
+}
+
+func TestRootWelcome(t *testing.T) {
+	s, _ := newTestServer(t)
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("content-type = %q, want application/json", ct)
+	}
+	var resp struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode root: %v", err)
+	}
+	if !strings.Contains(resp.Message, "argus-server") {
+		t.Fatalf("message = %q, want it to name argus-server", resp.Message)
+	}
+}
+
+func setupStatus(t *testing.T, h http.Handler) bool {
+	t.Helper()
+	rr := doJSON(t, h, http.MethodGet, protocol.SetupStatusPath, "", "", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("setup status = %d, body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Required bool `json:"setup_required"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode setup status: %v", err)
+	}
+	return resp.Required
+}
+
+func TestSetupFlow(t *testing.T) {
+	srv, store := newTestServer(t)
+	h := srv.Handler()
+
+	if !setupStatus(t, h) {
+		t.Fatal("setup should be required on a fresh database")
+	}
+
+	// A too-short password is rejected before anything is created.
+	rr := doJSON(t, h, http.MethodPost, protocol.SetupPath, "", "", map[string]string{
+		"username": "admin", "password": "short",
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("short password = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+	if !setupStatus(t, h) {
+		t.Fatal("a rejected setup must not create an admin")
+	}
+
+	rr = doJSON(t, h, http.MethodPost, protocol.SetupPath, "", "", map[string]string{
+		"username": "admin", "password": "dev-password",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("setup = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Username string `json:"username"`
+		CSRF     string `json:"csrf_token"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode setup: %v", err)
+	}
+	if resp.Username != "admin" || resp.CSRF == "" {
+		t.Fatalf("setup response = %+v, want username and csrf_token", resp)
+	}
+	if len(rr.Result().Cookies()) == 0 {
+		t.Fatal("setup must sign the new admin in")
+	}
+
+	if setupStatus(t, h) {
+		t.Fatal("setup should be closed after the first admin is created")
+	}
+
+	// A second setup attempt is refused.
+	rr = doJSON(t, h, http.MethodPost, protocol.SetupPath, "", "", map[string]string{
+		"username": "other", "password": "another-password",
+	})
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("second setup = %d, want 409", rr.Code)
+	}
+
+	// The credentials created by setup work for a normal login.
+	login(t, h, "admin", "dev-password")
+
+	if n, err := store.CountAdmins(context.Background()); err != nil {
+		t.Fatalf("count admins: %v", err)
+	} else if n != 1 {
+		t.Fatalf("admins = %d, want 1", n)
+	}
+}
+
+func TestSetupStatusWithExistingAdmin(t *testing.T) {
+	srv, store := newTestServer(t)
+	seedAdmin(t, store, "admin", "secret")
+	if setupStatus(t, srv.Handler()) {
+		t.Fatal("setup must be closed when an admin already exists")
+	}
+}
+
+func TestHealthz(t *testing.T) {
+	s, _ := newTestServer(t)
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("content-type = %q, want application/json", ct)
+	}
+}
+
+func TestHealthzDatabaseDown(t *testing.T) {
+	s, store := newTestServer(t)
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
+	}
 }
 
 func testSample(ts int64) metrics.Sample {

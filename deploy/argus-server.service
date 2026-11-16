@@ -1,0 +1,24 @@
+# /etc/systemd/system/argus-server.service
+[Unit]
+Description=argus-server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=shipit
+WorkingDirectory=/srv/app/argus/server/current
+ExecStart=/srv/app/argus/server/current/argus-server -config /srv/app/argus/server/shared/server.yaml
+EnvironmentFile=-/srv/app/argus/server/shared/.env
+Restart=always
+RestartSec=2
+
+# 高性价比沙箱：服务只能写 shared/，其余文件系统全部只读。
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/app/argus/server/shared
+
+[Install]
+WantedBy=multi-user.target

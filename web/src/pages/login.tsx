@@ -14,13 +14,14 @@ import {
 import { useAuth } from "@/lib/auth"
 
 export function LoginPage() {
-  const { username, login } = useAuth()
+  const { username, setupRequired, login } = useAuth()
   const navigate = useNavigate()
   const [user, setUser] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  if (setupRequired) return <Navigate to="/setup" replace />
   if (username) return <Navigate to="/" replace />
 
   const submit = async (e: FormEvent) => {

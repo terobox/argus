@@ -1,6 +1,9 @@
 package auth
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestHashAndCheck(t *testing.T) {
 	h, err := HashPassword("correct horse battery staple")
@@ -29,5 +32,32 @@ func TestHashIsSalted(t *testing.T) {
 func TestCheckPasswordBadHash(t *testing.T) {
 	if CheckPassword("not-a-bcrypt-hash", "secret") {
 		t.Fatal("malformed hash should never match")
+	}
+}
+
+func TestValidateCredentials(t *testing.T) {
+	tests := []struct {
+		name     string
+		username string
+		password string
+		wantErr  bool
+	}{
+		{"valid", "admin", "dev-password", false},
+		{"empty username", "  ", "dev-password", true},
+		{"long username", strings.Repeat("a", maxUsernameLen+1), "dev-password", true},
+		{"short password", "admin", "short", true},
+		{"bcrypt limit", "admin", strings.Repeat("a", maxPasswordBytes+1), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateUsername(tt.username)
+			if err == nil {
+				err = validatePassword(tt.password)
+			}
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validate(%q, %d bytes) err = %v, wantErr %v",
+					tt.username, len(tt.password), err, tt.wantErr)
+			}
+		})
 	}
 }

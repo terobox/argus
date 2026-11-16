@@ -1,0 +1,39 @@
+# argus-server 配置示例。
+#
+# 本地开发：`make run-server` 会在缺少配置时自动复制为
+# server/config.local.yaml（已被 .gitignore 的 *.local.yaml 忽略）。
+# 生产：放到 /srv/app/argus/server/shared/server.yaml，属主 shipit，权限 0600。
+#
+# 注意：相对路径（包括 db_path）按进程工作目录解析。用 make 时工作目录是仓库
+# 根目录；生产进程的工作目录是 .../current（只读的 release 快照），因此生产
+# 配置里的所有路径都必须写绝对路径。
+
+# 监听地址。生产建议只监听本机，由 nginx 反代：
+#   listen_addr: "127.0.0.1:8095"
+# 本地开发需要远程 agent 直连时用 ":8095"。
+listen_addr: ":8095"
+
+# SQLite 数据库路径。
+# 本地示例使用相对仓库根目录的路径；生产示例：
+#   db_path: "/srv/app/argus/server/shared/data/argus.db"
+db_path: "server/argus.local.db"
+
+# 后台任务（告警评估、过期清理）周期。
+job_interval: 15s
+
+# 登录会话有效期。
+session_ttl: 168h
+
+# 通过 HTTPS 提供服务时设为 true，登录 Cookie 才会带 Secure 标记。
+cookie_secure: false
+
+# 告警默认关闭。启用示例（去掉注释并填写 ntfy 地址）：
+# alert:
+#   enabled: true
+#   webhook_url: "https://ntfy.sh/your-topic"
+#   offline_after: 1m
+#   sustain: 5m
+#   cpu_threshold: 90
+#   mem_threshold: 90
+#   disk_threshold: 90
+#   cooldown: 1h

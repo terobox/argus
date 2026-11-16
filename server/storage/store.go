@@ -42,6 +42,10 @@ func Open(path string) (*Store, error) {
 // Close releases the database handle.
 func (s *Store) Close() error { return s.db.Close() }
 
+// Ping reports whether the database is still reachable. It backs the
+// unauthenticated /healthz endpoint used by the deploy health check.
+func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
+
 // Migrate applies all pending schema migrations. It is idempotent.
 func (s *Store) Migrate(ctx context.Context) error {
 	for _, stmt := range migrations {
@@ -95,8 +99,8 @@ func (s *Store) ensureColumn(ctx context.Context, table, column, ddl string) err
 // busy timeout so transient lock contention retries instead of erroring, and
 // synchronous=NORMAL for a good durability/latency tradeoff. Note: if path
 // contains characters that are special in a DSN (space, '?', '&'), it must be
-// percent-encoded by the caller; production paths like /var/lib/argus/argus.db
-// are fine as-is.
+// percent-encoded by the caller; production paths like
+// /srv/app/argus/server/shared/data/argus.db are fine as-is.
 func dsn(path string) string {
 	return "file:" + path +
 		"?_pragma=journal_mode(WAL)" +

@@ -1,0 +1,23 @@
+# argus-agent 配置示例。
+#
+# 生产由 deploy/install-agent.sh 写到 /etc/argus/agent.yaml（0640
+# root:argus-agent）。需要本地调试时复制为 agent/config.local.yaml
+# （已被 .gitignore 的 *.local.yaml 忽略），并用 -config 指向它。
+
+# server 地址。走 nginx 时是 https://your-host；直连 server 时是
+# http://<ip>:8095。
+server_url: "http://127.0.0.1:8095"
+
+# 在 Web 界面 Settings 页创建节点后得到（token 只显示一次）。
+node_id: "local-dev"
+token: "replace-with-node-token"
+
+# 采集与推送节奏；默认值见 docs/install.md。
+collect_interval: 1s
+slow_interval: 30s
+push_interval: 15s
+buffer_capacity: 600
+gzip: true
+
+# 手动指定公网 IP；省略则不探测（保护隐私）。
+# public_ip: "203.0.113.10"

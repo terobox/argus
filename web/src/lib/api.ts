@@ -103,6 +103,15 @@ interface LoginResponse {
   csrf_token: string
 }
 
+export interface SetupStatus {
+  setup_required: boolean
+}
+
+export interface SetupResponse {
+  username: string
+  csrf_token: string
+}
+
 export interface CreateNodeResponse {
   node_id: string
   token: string
@@ -167,6 +176,12 @@ async function request<T>(
 }
 
 export const api = {
+  setupStatus: () => request<SetupStatus>("/api/v1/setup/status"),
+  setup: (username: string, password: string) =>
+    request<SetupResponse>("/api/v1/setup", {
+      method: "POST",
+      body: { username, password },
+    }),
   login: (username: string, password: string) =>
     request<LoginResponse>("/api/v1/auth/login", {
       method: "POST",

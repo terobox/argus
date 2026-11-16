@@ -1,7 +1,8 @@
 // Package selfupdate downloads the latest release of a single binary asset from
 // GitHub Releases and installs it atomically over the running executable,
-// verifying the asset's SHA-256 against the release's checksums.txt. It uses only
-// the standard library, so the agent or server needs no extra dependency to
+// verifying the asset's SHA-256 against the release's checksums.txt. It is used
+// by argus-agent only: argus-server is upgraded by the deployment tool (shipit).
+// It uses only the standard library, so the agent needs no extra dependency to
 // upgrade itself.
 //
 // Unauthenticated GitHub API requests are rate-limited to 60/hour per IP; a
@@ -26,7 +27,7 @@ import (
 // Updater fetches releases of one asset from one repository.
 type Updater struct {
 	repo      string // "owner/name"
-	assetName string // exact release asset name (goreleaser binary format)
+	assetName string // exact release asset name (raw binary, see scripts/package.sh)
 	current   string // running version; "dev" is always treated as out of date
 
 	apiBase string // GitHub API base URL, injectable for tests

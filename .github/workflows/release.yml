@@ -5,11 +5,13 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  goreleaser:
+  release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,11 +44,46 @@ jobs:
       - name: Run Go tests
         run: go test -race ./...
 
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
+      # Builds argus-server tarballs (amd64/arm64), argus-web tarball, the
+      # agent's raw binaries, and one checksums.txt covering all of them.
+      - name: Build release assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: ./scripts/package.sh
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "$TAG" --generate-notes
+          fi
+
+  # Deploy the server first: a new frontend may call an API that only exists in
+  # the new server. See docs/install.md ("升级与回滚").
+  deploy-server:
+    needs: release
+    if: github.repository == 'terobox/argus'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: beyenpay/shipit@v1
+        with:
+          url: ${{ secrets.SHIPIT_URL }}
+          secret: ${{ secrets.SHIPIT_SECRET }}
+          project: argus-server
+          tag: ${{ github.ref_name }}
+
+  deploy-web:
+    needs: deploy-server
+    if: github.repository == 'terobox/argus'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: beyenpay/shipit@v1
+        with:
+          url: ${{ secrets.SHIPIT_URL }}
+          secret: ${{ secrets.SHIPIT_SECRET }}
+          project: argus-web
+          tag: ${{ github.ref_name }}

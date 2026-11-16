@@ -26,6 +26,24 @@ func (s *Store) UpsertAdmin(ctx context.Context, a Admin) error {
 	return nil
 }
 
+// CreateInitialAdmin inserts the first admin only if the admins table is empty.
+// It reports whether the row was created. The INSERT ... SELECT form is a single
+// atomic statement, so two concurrent first-setup requests cannot both succeed.
+func (s *Store) CreateInitialAdmin(ctx context.Context, a Admin) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO admins (username, password_hash, created_at)
+		 SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM admins)`,
+		a.Username, a.PasswordHash, a.CreatedAt)
+	if err != nil {
+		return false, fmt.Errorf("create initial admin: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("create initial admin rows: %w", err)
+	}
+	return n > 0, nil
+}
+
 // GetAdmin returns the admin named username, or ok=false if absent.
 func (s *Store) GetAdmin(ctx context.Context, username string) (Admin, bool, error) {
 	var a Admin

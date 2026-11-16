@@ -3,8 +3,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -55,7 +57,7 @@ func run(args []string) error {
 	}
 
 	fs := flag.NewFlagSet("argus-agent", flag.ExitOnError)
-	configPath := fs.String("config", "agent.yaml", "path to the agent config file")
+	configPath := fs.String("config", "agent/config.local.yaml", "path to the agent config file")
 	fs.Parse(args)
 	return runCollect(*configPath)
 }
@@ -63,6 +65,9 @@ func run(args []string) error {
 func runCollect(configPath string) error {
 	cfg, err := config.LoadAgent(configPath)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("%w\nhint: copy agent/config.example.yaml to agent/config.local.yaml and pass -config <path>", err)
+		}
 		return err
 	}
 

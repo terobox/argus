@@ -1,12 +1,19 @@
 # argus build & release tasks.
-# Requirements: Go 1.26+, pnpm 9+, goreleaser v2.
-# The frontend is no longer embedded: build it with `make web` and serve
-# web/dist either via the server's web_dir or a reverse proxy / Vite dev server.
+# Requirements: Go 1.26+, pnpm 9+.
+# The frontend is a separate deployment artifact: build it with `make web`,
+# then `make package` puts both the Go binaries and web/dist into the release
+# assets consumed by shipit (server, web) and install-agent.sh (agent).
 
-.PHONY: deps web build run-server run-web test lint release snapshot clean
+.PHONY: deps web build run-server run-web test lint package release clean
 
-# Server config used by run-server; override for a local config file.
-CONFIG ?= server.yaml
+# Local runtime config, gitignored. Generated from the committed example on
+# first use. Override CONFIG to point at another file without triggering the
+# copy.
+LOCAL_CONFIG ?= server/config.local.yaml
+CONFIG ?= $(LOCAL_CONFIG)
+
+# Release tag. Empty unless HEAD is exactly a tag; pass TAG=vX.Y.Z to override.
+TAG ?= $(shell git describe --tags --exact-match 2>/dev/null)
 
 deps: ## install frontend dependencies
 	pnpm --dir web install
@@ -18,7 +25,11 @@ build: ## build both binaries for the current host
 	go build -o bin/argus-agent ./agent/cmd/argus-agent
 	go build -o bin/argus-server ./server/cmd/argus-server
 
-run-server: ## run the server locally (CONFIG=server.yaml by default)
+run-server: ## run the server locally (creates the local config from the example if missing)
+	@if [ "$(CONFIG)" = "$(LOCAL_CONFIG)" ] && [ ! -f "$(CONFIG)" ]; then \
+		cp server/config.example.yaml "$(CONFIG)"; \
+		echo "created $(CONFIG) from server/config.example.yaml"; \
+	fi
 	go run ./server/cmd/argus-server -config $(CONFIG)
 
 run-web: ## run the Vite dev server, proxying /api to :8095
@@ -30,11 +41,10 @@ test: ## run Go tests with the race detector
 lint: ## typecheck + lint the frontend
 	pnpm --dir web lint
 
-release: ## publish a release via goreleaser (requires a tag)
-	goreleaser release --clean
+package: web ## build release assets into dist/ (shipit + agent naming)
+	TAG=$(TAG) ./scripts/package.sh
 
-snapshot: ## local smoke-test of the release pipeline (no publish)
-	goreleaser release --snapshot --clean
+release: package ## alias for package; CI publishes and deploys on a tag push
 
 clean:
-	rm -rf bin
+	rm -rf bin dist
