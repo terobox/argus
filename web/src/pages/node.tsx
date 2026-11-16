@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
-import { useParams } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
+import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -168,8 +169,45 @@ function LastUpdated({ ts }: { ts: number }) {
   )
 }
 
+// NodeStatus renders the online dot and the age of the newest report. It ticks
+// once a second so the age stays accurate between pushes (samples arrive every
+// ~15s) without re-rendering the charts below.
+function NodeStatus({
+  lastSeen,
+  id,
+}: {
+  lastSeen: number | undefined
+  id: string
+}) {
+  const [now, setNow] = useState(0)
+  useEffect(() => {
+    const tick = () => setNow(Date.now())
+    tick()
+    const t = setInterval(tick, 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  const online =
+    now > 0 && lastSeen !== undefined && now / 1000 - lastSeen <= ONLINE_AFTER
+
+  return (
+    <p className="text-sm text-muted-foreground">
+      <span
+        className={cn(
+          "mr-1 inline-block size-1.5 rounded-full align-middle",
+          online ? "bg-emerald-500" : "bg-muted-foreground",
+        )}
+      />
+      {online ? "online" : "offline"} · last report{" "}
+      {lastSeen !== undefined ? lastSeenAgo(lastSeen) : "…"} ·{" "}
+      <span className="font-mono text-xs">{id}</span>
+    </p>
+  )
+}
+
 export function NodePage() {
   const { id = "" } = useParams()
+  const navigate = useNavigate()
   const [detail, setDetail] = useState<NodeDetail | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [range, setRange] = useState(RANGES[0].seconds)
@@ -215,12 +253,14 @@ export function NodePage() {
     return <p className="text-sm text-muted-foreground">Node not found.</p>
   }
 
-  const online =
-    detail ? Date.now() / 1000 - detail.last_seen <= ONLINE_AFTER : false
   const hi = detail?.host_info
   // Prefer the live SSE sample; fall back to the stored latest so top stats
   // are never blank after the detail API call returns.
   const live = sample ?? detail?.latest_sample ?? null
+  // The detail document is fetched once on mount, so its last_seen would go
+  // stale while pushes keep arriving and flip the header to "offline" after
+  // ONLINE_AFTER. Judge freshness by the newest sample instead.
+  const lastSeen = live?.ts ? live.ts : detail?.last_seen
   const detailLoading = detail === null && !notFound
 
   // Derive a rough "load saturation" percentage from load1 / cpu_cores.
@@ -232,19 +272,19 @@ export function NodePage() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">{hi?.hostname || id}</h1>
-          <p className="text-sm text-muted-foreground">
-            <span
-              className={cn(
-                "mr-1 inline-block size-1.5 rounded-full align-middle",
-                online ? "bg-emerald-500" : "bg-muted-foreground",
-              )}
-            />
-            {online ? "online" : "offline"} · last report{" "}
-            {detail ? lastSeenAgo(detail.last_seen) : "…"} ·{" "}
-            <span className="font-mono text-xs">{id}</span>
-          </p>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => navigate("/")}
+            aria-label="Back to overview"
+          >
+            <ArrowLeft />
+          </Button>
+          <div>
+            <h1 className="text-lg font-semibold">{hi?.hostname || id}</h1>
+            <NodeStatus lastSeen={lastSeen} id={id} />
+          </div>
         </div>
         <div className="flex gap-1">
           {RANGES.map((r) => (

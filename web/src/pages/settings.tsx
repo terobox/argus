@@ -25,6 +25,7 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [copiedCmd, setCopiedCmd] = useState(false)
 
   const refresh = () => {
     api
@@ -90,6 +91,17 @@ export function SettingsPage() {
     ? `curl -fsSL https://raw.githubusercontent.com/terobox/argus/main/deploy/install-agent.sh | sudo bash -s -- --server '${window.location.origin}' --node-id '${created.node_id}' --token '${created.token}'`
     : ""
 
+  const copyCommand = async () => {
+    if (!curl) return
+    try {
+      await navigator.clipboard.writeText(curl)
+      setCopiedCmd(true)
+      setTimeout(() => setCopiedCmd(false), 2000)
+    } catch {
+      // clipboard may be unavailable; the user can select the text
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <header>
@@ -148,9 +160,15 @@ export function SettingsPage() {
               <p className="mt-3 text-xs text-muted-foreground">
                 Install an agent with:
               </p>
-              <code className="mt-1 block overflow-x-auto whitespace-pre rounded bg-background px-2 py-1 font-mono text-[11px]">
-                {curl}
-              </code>
+              <div className="mt-1 flex items-start gap-2">
+                <code className="min-w-0 flex-1 overflow-x-auto whitespace-pre rounded bg-background px-2 py-1 font-mono text-[11px]">
+                  {curl}
+                </code>
+                <Button variant="outline" size="sm" onClick={copyCommand}>
+                  <Copy />
+                  {copiedCmd ? "Copied" : "Copy"}
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>

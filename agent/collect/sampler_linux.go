@@ -188,19 +188,53 @@ func (s *Sampler) rootDevice() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Always attempt to resolve symlinks first. Some setups (notably AWS ARM
-	// instances) mount "/" on "/dev/root", a symlink to the actual block device
-	// (e.g. /dev/nvme0n1p1). BaseDeviceName would succeed with "root", which is
-	// not a real diskstats entry, causing disk I/O to be silently dropped.
-	if resolved, rerr := filepath.EvalSymlinks(rootDev); rerr == nil && resolved != rootDev {
-		rootDev = resolved
-	}
+	// Map the mount source to the kernel block device name before stripping the
+	// partition suffix. Cloud images commonly mount "/" through "/dev/root": on
+	// some it is a symlink to /dev/nvme0n1p1, on others (notably AWS ARM images)
+	// a plain device node whose name says nothing about the disk. Without this,
+	// BaseDeviceName would produce "root", which is never a diskstats entry, and
+	// disk I/O would silently be reported as zero.
+	rootDev = resolveBlockDevice(rootDev)
 	base, err := BaseDeviceName(rootDev)
 	if err == nil {
 		s.diskDevice = base
 		return base, nil
 	}
 	return "", err
+}
+
+// resolveBlockDevice returns a /dev path whose basename is the kernel name of
+// the block device behind dev. It follows symlinks, then resolves the device's
+// major:minor through /sys/dev/block, which names both whole disks and
+// partitions regardless of how /dev was populated. Non-block sources (overlay,
+// tmpfs roots in containers) are returned unchanged so callers can reject them.
+func resolveBlockDevice(dev string) string {
+	if resolved, err := filepath.EvalSymlinks(dev); err == nil {
+		dev = resolved
+	} else {
+		return dev
+	}
+	var st syscall.Stat_t
+	if err := syscall.Stat(dev, &st); err != nil {
+		return dev
+	}
+	if st.Mode&syscall.S_IFMT != syscall.S_IFBLK {
+		return dev
+	}
+	major, minor := linuxMajorMinor(uint64(st.Rdev))
+	target, err := filepath.EvalSymlinks(fmt.Sprintf("/sys/dev/block/%d:%d", major, minor))
+	if err != nil {
+		return dev
+	}
+	return "/dev/" + filepath.Base(target)
+}
+
+// linuxMajorMinor decodes the Linux dev_t encoding held in Stat_t.Rdev into
+// major and minor numbers, matching glibc's major() and minor() macros.
+func linuxMajorMinor(dev uint64) (major, minor uint32) {
+	major = uint32((dev>>8)&0xfff) | uint32((dev>>32)&0xfffff000)
+	minor = uint32(dev&0xff) | uint32((dev>>12)&0xffffff00)
+	return major, minor
 }
 
 func (s *Sampler) refreshSlow() {
