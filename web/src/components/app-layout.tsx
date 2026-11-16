@@ -10,7 +10,7 @@ function navCls({ isActive }: { isActive: boolean }) {
     "flex items-center gap-2 rounded-none px-2 py-1.5 text-sm transition-colors",
     isActive
       ? "bg-sidebar-accent text-sidebar-accent-foreground"
-      : "hover:bg-sidebar-accent/60",
+      : "hover:bg-sidebar-accent/60"
   )
 }
 
@@ -55,8 +55,65 @@ export function AppLayout() {
   }
 
   return (
-    <div className="flex h-svh overflow-hidden">
-      <aside className="flex w-52 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+    <div className="flex h-svh flex-col overflow-hidden md:flex-row">
+      {/* Below md the sidebar is replaced by this compact top bar; the desktop
+          sidebar and content area are unchanged. */}
+      <header className="flex h-12 shrink-0 items-center gap-1 border-b bg-sidebar px-2 text-sidebar-foreground md:hidden">
+        <span className="flex items-center gap-2 px-2 text-sm font-semibold">
+          <Logo className="size-4 text-sidebar-primary" />
+          Argus
+        </span>
+        <nav className="ml-auto flex items-center gap-0.5">
+          <NavLink
+            to="/"
+            end
+            aria-label="Overview"
+            className={({ isActive }) =>
+              cn(
+                "inline-flex size-8 items-center justify-center transition-colors",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "hover:bg-sidebar-accent/60"
+              )
+            }
+          >
+            <LayoutDashboard className="size-4" />
+          </NavLink>
+          <NavLink
+            to="/settings"
+            aria-label="Settings"
+            className={({ isActive }) =>
+              cn(
+                "inline-flex size-8 items-center justify-center transition-colors",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "hover:bg-sidebar-accent/60"
+              )
+            }
+          >
+            <Settings className="size-4" />
+          </NavLink>
+        </nav>
+        <div className="flex items-center gap-1 border-l pl-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            aria-label="Toggle theme"
+          >
+            {theme === "dark" ? <Sun /> : <Moon />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={handleLogout}
+            aria-label="Log out"
+          >
+            <LogOut />
+          </Button>
+        </div>
+      </header>
+      <aside className="hidden w-52 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:flex">
         <div className="flex h-14 items-center gap-2 px-4 text-sm font-semibold">
           <Logo className="size-4 text-sidebar-primary" />
           Argus
@@ -93,7 +150,7 @@ export function AppLayout() {
           </Button>
         </div>
       </aside>
-      <main className="min-w-0 flex-1 overflow-y-auto p-6">
+      <main className="min-w-0 flex-1 overflow-y-auto p-4 md:p-6">
         <Outlet />
       </main>
     </div>

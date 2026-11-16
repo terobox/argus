@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import type { FormEvent } from "react"
 import { Copy, Plus, Trash2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -11,8 +11,28 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { api, type NodeSummary } from "@/lib/api"
 import { lastSeenAgo } from "@/lib/format"
+
+// ConfirmAction is a pending confirmation shown in the AlertDialog instead of a
+// browser-native window.confirm popup.
+type ConfirmAction = {
+  title: string
+  description: string
+  confirmLabel: string
+  destructive?: boolean
+  onConfirm: () => void
+}
 
 export function SettingsPage() {
   const [nodes, setNodes] = useState<NodeSummary[] | null>(null)
@@ -23,6 +43,7 @@ export function SettingsPage() {
     token: string
     rotated?: boolean
   } | null>(null)
+  const [confirm, setConfirm] = useState<ConfirmAction | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -62,20 +83,22 @@ export function SettingsPage() {
     }
   }
 
-  const remove = async (id: string) => {
-    if (
-      !window.confirm(
-        `Delete node "${id}"? Historical samples are retained until they expire.`,
-      )
-    ) {
-      return
-    }
-    try {
-      await api.deleteNode(id)
-      refresh()
-    } catch {
-      // ignore; the list refresh reflects server state
-    }
+  const remove = (id: string) => {
+    setConfirm({
+      title: `Delete node “${id}”?`,
+      description:
+        "Historical samples are retained until they expire. The agent on that host will be rejected until it is reinstalled with a new token.",
+      confirmLabel: "Delete",
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await api.deleteNode(id)
+          refresh()
+        } catch {
+          // ignore; the list refresh reflects server state
+        }
+      },
+    })
   }
 
   const copyToken = async () => {
@@ -91,24 +114,25 @@ export function SettingsPage() {
 
   // rotate issues a fresh token for an existing node, which is the only way to
   // show its install command again: the server stores just the token hash. The
-  // previous token stops working, so the call site confirms first.
-  const rotate = async (id: string) => {
-    if (
-      !window.confirm(
-        `Generate a new token for "${id}"?\n\nThe current token stops working immediately: the agent on that host will report 401 until you reinstall it with the new install command.`,
-      )
-    ) {
-      return
-    }
-    setActionError(null)
-    try {
-      const resp = await api.rotateNodeToken(id)
-      setCreated({ ...resp, rotated: true })
-      setCopied(false)
-      setCopiedCmd(false)
-    } catch {
-      setActionError("Could not generate a new token")
-    }
+  // previous token stops working, so ask for confirmation first.
+  const rotate = (id: string) => {
+    setConfirm({
+      title: `Generate a new token for “${id}”?`,
+      description:
+        "The current token stops working immediately: the agent on that host will report 401 until you reinstall it with the new install command.",
+      confirmLabel: "Generate token",
+      onConfirm: async () => {
+        setActionError(null)
+        try {
+          const resp = await api.rotateNodeToken(id)
+          setCreated({ ...resp, rotated: true })
+          setCopied(false)
+          setCopiedCmd(false)
+        } catch {
+          setActionError("Could not generate a new token")
+        }
+      },
+    })
   }
 
   const curl = created
@@ -130,7 +154,9 @@ export function SettingsPage() {
     <div className="flex flex-col gap-6">
       <header>
         <h1 className="text-lg font-semibold">Settings</h1>
-        <p className="text-sm text-muted-foreground">Manage registered agents.</p>
+        <p className="text-sm text-muted-foreground">
+          Manage registered agents.
+        </p>
       </header>
 
       <Card>
@@ -141,7 +167,10 @@ export function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={create} className="flex items-end gap-3">
+          <form
+            onSubmit={create}
+            className="flex flex-col gap-3 sm:flex-row sm:items-end"
+          >
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
               <Label htmlFor="node-id">Node ID</Label>
               <Input
@@ -160,7 +189,11 @@ export function SettingsPage() {
                 placeholder="prod, web (optional)"
               />
             </div>
-            <Button type="submit" disabled={busy || !newId.trim()}>
+            <Button
+              type="submit"
+              className="w-full sm:w-auto"
+              disabled={busy || !newId.trim()}
+            >
               <Plus />
               Add
             </Button>
@@ -179,7 +212,7 @@ export function SettingsPage() {
             <div className="mx-6 mb-4 rounded-lg border border-border bg-muted/40 p-4 text-sm">
               <p className="font-medium">
                 {created.rotated
-                  ? `New token for node “${created.node_id}”. The previous token no longer works — reinstall the agent with:`
+                  ? `New token for node “${created.node_id}”. The previous token no longer works; copy this one now (it cannot be shown again), then reinstall the agent with:`
                   : `Node “${created.node_id}” created. Copy the token now — it is shown only once.`}
               </p>
               <div className="mt-3 flex items-center gap-2">
@@ -195,7 +228,7 @@ export function SettingsPage() {
                 Install an agent with:
               </p>
               <div className="mt-1 flex items-start gap-2">
-                <code className="min-w-0 flex-1 overflow-x-auto whitespace-pre rounded bg-background px-2 py-1 font-mono text-[11px]">
+                <code className="min-w-0 flex-1 overflow-x-auto rounded bg-background px-2 py-1 font-mono text-[11px] whitespace-pre">
                   {curl}
                 </code>
                 <Button variant="outline" size="sm" onClick={copyCommand}>
@@ -203,6 +236,11 @@ export function SettingsPage() {
                   {copiedCmd ? "Copied" : "Copy"}
                 </Button>
               </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                This command contains the node token, which grants write access
+                to this node&apos;s metrics. Treat it like a password; it may be
+                recorded in the target host&apos;s shell history.
+              </p>
             </div>
           )}
           {actionError && (
@@ -213,58 +251,89 @@ export function SettingsPage() {
           ) : nodes.length === 0 ? (
             <p className="px-6 text-sm text-muted-foreground">No nodes.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th className="px-6 py-2 font-medium">Node</th>
-                  <th className="px-6 py-2 font-medium">Hostname</th>
-                  <th className="px-6 py-2 font-medium">Tags</th>
-                  <th className="px-6 py-2 font-medium">Last seen</th>
-                  <th className="px-6 py-2" />
-                  <th className="px-6 py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {nodes.map((n) => (
-                  <tr
-                    key={n.node_id}
-                    className="border-b border-border/50 last:border-0"
-                  >
-                    <td className="px-6 py-2 font-mono text-xs">{n.node_id}</td>
-                    <td className="px-6 py-2">{n.hostname || "—"}</td>
-                    <td className="px-6 py-2 text-muted-foreground">
-                      {n.tags?.length ? n.tags.join(", ") : "—"}
-                    </td>
-                    <td className="px-6 py-2 text-muted-foreground">
-                      {lastSeenAgo(n.last_seen)}
-                    </td>
-                    <td className="px-6 py-2 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => rotate(n.node_id)}
-                          title="Issue a new token and show the install command"
-                        >
-                          Install
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => remove(n.node_id)}
-                          aria-label={`Delete ${n.node_id}`}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-160 text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                    <th className="px-6 py-2 font-medium">Node</th>
+                    <th className="px-6 py-2 font-medium">Hostname</th>
+                    <th className="px-6 py-2 font-medium">Tags</th>
+                    <th className="px-6 py-2 font-medium">Last seen</th>
+                    <th className="px-6 py-2" />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {nodes.map((n) => (
+                    <tr
+                      key={n.node_id}
+                      className="border-b border-border/50 last:border-0"
+                    >
+                      <td className="px-6 py-2 font-mono text-xs">
+                        {n.node_id}
+                      </td>
+                      <td className="px-6 py-2">{n.hostname || "—"}</td>
+                      <td className="px-6 py-2 text-muted-foreground">
+                        {n.tags?.length ? n.tags.join(", ") : "—"}
+                      </td>
+                      <td className="px-6 py-2 text-muted-foreground">
+                        {lastSeenAgo(n.last_seen)}
+                      </td>
+                      <td className="px-6 py-2 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => rotate(n.node_id)}
+                          >
+                            Install
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => remove(n.node_id)}
+                            aria-label={`Delete ${n.node_id}`}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog
+        open={confirm !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirm(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirm?.title}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirm?.description}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirm?.onConfirm}
+              className={
+                confirm?.destructive
+                  ? buttonVariants({ variant: "destructive" })
+                  : undefined
+              }
+            >
+              {confirm?.confirmLabel}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
