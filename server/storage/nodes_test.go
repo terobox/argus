@@ -38,6 +38,41 @@ func TestUpsertAndVerifyNodeToken(t *testing.T) {
 	}
 }
 
+func TestUpdateNodeToken(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+
+	if err := s.UpsertNode(ctx, Node{
+		NodeID: "n1", TokenHash: HashToken("old"), FirstSeen: 7, LastSeen: 9, Tags: []string{"prod"},
+	}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	ok, err := s.UpdateNodeToken(ctx, "n1", HashToken("new"))
+	if err != nil || !ok {
+		t.Fatalf("update = (%v, %v), want (true, nil)", ok, err)
+	}
+	if ok, err := s.VerifyNodeToken(ctx, "n1", "new"); err != nil || !ok {
+		t.Fatalf("verify new = (%v, %v), want (true, nil)", ok, err)
+	}
+	if ok, err := s.VerifyNodeToken(ctx, "n1", "old"); err != nil || ok {
+		t.Fatalf("verify old = (%v, %v), want (false, nil)", ok, err)
+	}
+
+	// Rotation must not disturb the node's other fields.
+	n, found, err := s.GetNode(ctx, "n1")
+	if err != nil || !found {
+		t.Fatalf("get = (%v, %v)", found, err)
+	}
+	if n.FirstSeen != 7 || n.LastSeen != 9 || len(n.Tags) != 1 || n.Tags[0] != "prod" {
+		t.Fatalf("node = %+v, want first_seen, last_seen, and tags preserved", n)
+	}
+
+	if ok, err := s.UpdateNodeToken(ctx, "ghost", HashToken("x")); err != nil || ok {
+		t.Fatalf("update unknown = (%v, %v), want (false, nil)", ok, err)
+	}
+}
+
 func TestTouchAndListNodes(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)

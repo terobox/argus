@@ -7,7 +7,7 @@ import { formatBytes, formatRate, lastSeenAgo } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 const GRID =
-  "grid grid-cols-[minmax(190px,1.5fr)_minmax(56px,0.6fr)_minmax(150px,1.1fr)_minmax(150px,1.1fr)_minmax(150px,1.2fr)_minmax(44px,0.4fr)] items-center gap-x-4"
+  "grid grid-cols-[minmax(190px,1.5fr)_minmax(56px,0.6fr)_minmax(150px,1.1fr)_minmax(150px,1.1fr)_minmax(150px,1.2fr)_minmax(64px,0.6fr)] items-center gap-x-4"
 
 export function OverviewPage() {
   const { nodes, connected } = useNodesStream()
@@ -66,7 +66,7 @@ export function OverviewPage() {
               <span className="text-right">Memory</span>
               <span className="text-right">Disk</span>
               <span className="text-right">Network ↓ / ↑</span>
-              <span className="text-right">Cores</span>
+              <span className="text-right">Agent</span>
             </div>
             {filtered.map((n) => {
               const isPending = n.last_seen <= 0
@@ -116,8 +116,8 @@ export function OverviewPage() {
                     total={n.live?.disk_total}
                   />
                   <NetCell rx={n.live?.net_rx_rate} tx={n.live?.net_tx_rate} />
-                  <span className="text-right tabular-nums text-muted-foreground">
-                    {n.cpu_cores || "—"}
+                  <span className="text-right font-mono text-xs text-muted-foreground">
+                    {n.agent_version || "—"}
                   </span>
                 </Link>
               )

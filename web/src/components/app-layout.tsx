@@ -55,7 +55,7 @@ export function AppLayout() {
   }
 
   return (
-    <div className="flex min-h-svh">
+    <div className="flex h-svh overflow-hidden">
       <aside className="flex w-52 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
         <div className="flex h-14 items-center gap-2 px-4 text-sm font-semibold">
           <Logo className="size-4 text-sidebar-primary" />
@@ -93,7 +93,7 @@ export function AppLayout() {
           </Button>
         </div>
       </aside>
-      <main className="min-w-0 flex-1 p-6">
+      <main className="min-w-0 flex-1 overflow-y-auto p-6">
         <Outlet />
       </main>
     </div>

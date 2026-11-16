@@ -14,6 +14,7 @@ export interface NodeMetrics {
 export interface StatusEvent {
   node_id: string
   hostname: string
+  agent_version: string
   first_seen: number
   last_seen: number
   online: boolean

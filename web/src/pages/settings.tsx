@@ -21,7 +21,9 @@ export function SettingsPage() {
   const [created, setCreated] = useState<{
     node_id: string
     token: string
+    rotated?: boolean
   } | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -87,6 +89,28 @@ export function SettingsPage() {
     }
   }
 
+  // rotate issues a fresh token for an existing node, which is the only way to
+  // show its install command again: the server stores just the token hash. The
+  // previous token stops working, so the call site confirms first.
+  const rotate = async (id: string) => {
+    if (
+      !window.confirm(
+        `Generate a new token for "${id}"?\n\nThe current token stops working immediately: the agent on that host will report 401 until you reinstall it with the new install command.`,
+      )
+    ) {
+      return
+    }
+    setActionError(null)
+    try {
+      const resp = await api.rotateNodeToken(id)
+      setCreated({ ...resp, rotated: true })
+      setCopied(false)
+      setCopiedCmd(false)
+    } catch {
+      setActionError("Could not generate a new token")
+    }
+  }
+
   const curl = created
     ? `curl -fsSL https://raw.githubusercontent.com/terobox/argus/main/deploy/install-agent.sh | sudo bash -s -- --server '${window.location.origin}' --node-id '${created.node_id}' --token '${created.token}'`
     : ""
@@ -142,11 +166,21 @@ export function SettingsPage() {
             </Button>
           </form>
           {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Nodes</CardTitle>
+          <CardDescription>{nodes?.length ?? 0} registered</CardDescription>
+        </CardHeader>
+        <CardContent className="px-0">
           {created && (
-            <div className="mt-4 rounded-lg border border-border bg-muted/40 p-4 text-sm">
+            <div className="mx-6 mb-4 rounded-lg border border-border bg-muted/40 p-4 text-sm">
               <p className="font-medium">
-                Node “{created.node_id}” created. Copy the token now — it is
-                shown only once.
+                {created.rotated
+                  ? `New token for node “${created.node_id}”. The previous token no longer works — reinstall the agent with:`
+                  : `Node “${created.node_id}” created. Copy the token now — it is shown only once.`}
               </p>
               <div className="mt-3 flex items-center gap-2">
                 <code className="min-w-0 flex-1 truncate rounded bg-background px-2 py-1 font-mono text-xs">
@@ -171,15 +205,9 @@ export function SettingsPage() {
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Nodes</CardTitle>
-          <CardDescription>{nodes?.length ?? 0} registered</CardDescription>
-        </CardHeader>
-        <CardContent className="px-0">
+          {actionError && (
+            <p className="mx-6 mb-2 text-xs text-destructive">{actionError}</p>
+          )}
           {nodes === null ? (
             <p className="px-6 text-sm text-muted-foreground">Loading…</p>
           ) : nodes.length === 0 ? (
@@ -192,6 +220,7 @@ export function SettingsPage() {
                   <th className="px-6 py-2 font-medium">Hostname</th>
                   <th className="px-6 py-2 font-medium">Tags</th>
                   <th className="px-6 py-2 font-medium">Last seen</th>
+                  <th className="px-6 py-2" />
                   <th className="px-6 py-2" />
                 </tr>
               </thead>
@@ -210,14 +239,24 @@ export function SettingsPage() {
                       {lastSeenAgo(n.last_seen)}
                     </td>
                     <td className="px-6 py-2 text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => remove(n.node_id)}
-                        aria-label={`Delete ${n.node_id}`}
-                      >
-                        <Trash2 />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => rotate(n.node_id)}
+                          title="Issue a new token and show the install command"
+                        >
+                          Install
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => remove(n.node_id)}
+                          aria-label={`Delete ${n.node_id}`}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}

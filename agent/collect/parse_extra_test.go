@@ -44,33 +44,6 @@ func TestParseMountsNoRoot(t *testing.T) {
 	}
 }
 
-func TestBaseDeviceName(t *testing.T) {
-	cases := map[string]string{
-		"/dev/sda1":      "sda",
-		"/dev/sda10":     "sda",
-		"/dev/sda":       "sda",
-		"/dev/vda1":      "vda",
-		"/dev/xvda1":     "xvda",
-		"/dev/nvme0n1p1": "nvme0n1",
-		"/dev/nvme0n1":   "nvme0n1",
-		"/dev/mmcblk0p2": "mmcblk0",
-	}
-	for in, want := range cases {
-		got, err := BaseDeviceName(in)
-		if err != nil {
-			t.Errorf("BaseDeviceName(%q): %v", in, err)
-			continue
-		}
-		if got != want {
-			t.Errorf("BaseDeviceName(%q) = %q, want %q", in, got, want)
-		}
-	}
-
-	if _, err := BaseDeviceName("sda1"); err == nil {
-		t.Error("expected error for device without /dev/ prefix, got nil")
-	}
-}
-
 func TestParseUtmpUsers(t *testing.T) {
 	buf := make([]byte, utmpRecordSize*3)
 	binary.LittleEndian.PutUint16(buf[0:2], utmpUserProcess)

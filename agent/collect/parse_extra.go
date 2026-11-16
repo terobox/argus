@@ -40,41 +40,6 @@ func ParseMounts(b []byte) (string, error) {
 	return "", fmt.Errorf("mounts: no root mount")
 }
 
-// BaseDeviceName maps a /dev path to the base diskstats device name, stripping
-// the partition suffix: "/dev/sda1" -> "sda", "/dev/nvme0n1p1" -> "nvme0n1",
-// "/dev/mmcblk0p2" -> "mmcblk0". Unrecognized layouts (LVM dm-*, containers)
-// are not resolved and return an error; callers treat that as "skip disk I/O".
-func BaseDeviceName(dev string) (string, error) {
-	name := strings.TrimPrefix(dev, "/dev/")
-	if name == dev || name == "" {
-		return "", fmt.Errorf("unrecognized device %q", dev)
-	}
-	// Partition suffixes differ by device family:
-	//   - nvme/mmcblk append "p<number>" ("nvme0n1p1" -> "nvme0n1")
-	//   - sd/vd/xvd append a bare number ("sda1" -> "sda")
-	// For nvme/mmcblk the trailing number is otherwise part of the device name
-	// (e.g. nvme0n1), so only a "p<number>" suffix is stripped there.
-	if strings.HasPrefix(name, "nvme") || strings.HasPrefix(name, "mmcblk") {
-		j := len(name)
-		for j > 0 && name[j-1] >= '0' && name[j-1] <= '9' {
-			j--
-		}
-		if j > 0 && j < len(name) && name[j-1] == 'p' {
-			return name[:j-1], nil
-		}
-		return name, nil
-	}
-
-	j := len(name)
-	for j > 0 && name[j-1] >= '0' && name[j-1] <= '9' {
-		j--
-	}
-	if j > 0 && j < len(name) {
-		return name[:j], nil
-	}
-	return name, nil
-}
-
 // utmpRecordSize is sizeof(struct utmp) on 64-bit Linux (x86_64 and aarch64).
 // ut_type is the leading int16; USER_PROCESS is 7.
 const (

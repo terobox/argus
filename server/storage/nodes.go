@@ -44,6 +44,22 @@ func (s *Store) UpsertNode(ctx context.Context, n Node) error {
 	return nil
 }
 
+// UpdateNodeToken replaces a node's token hash and reports whether the node
+// exists. It never touches first_seen, last_seen, or tags. Unlike UpsertNode it
+// cannot create a node, so a typo'd ID cannot silently register a new one.
+func (s *Store) UpdateNodeToken(ctx context.Context, nodeID, tokenHash string) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE nodes SET token_hash = ? WHERE node_id = ?`, tokenHash, nodeID)
+	if err != nil {
+		return false, fmt.Errorf("update node token: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("update node token: %w", err)
+	}
+	return n > 0, nil
+}
+
 // parseTags decodes a node's tags JSON column. Empty, "null", and malformed
 // values all yield an empty (non-nil) slice rather than an error, so a
 // pre-existing row (or an empty default) never breaks the read path and the API

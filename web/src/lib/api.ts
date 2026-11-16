@@ -41,6 +41,7 @@ export interface HostInfo {
 export interface NodeSummary {
   node_id: string
   hostname: string
+  agent_version: string
   first_seen: number
   last_seen: number
   cpu_cores: number
@@ -197,6 +198,14 @@ export const api = {
       method: "POST",
       body: { node_id: nodeId, tags },
     }),
+  // rotateNodeToken issues a fresh token for an existing node and returns it
+  // once. The previous token stops working immediately, so the agent must be
+  // reinstalled with the new install command.
+  rotateNodeToken: (nodeId: string) =>
+    request<CreateNodeResponse>(
+      `/api/v1/nodes/${encodeURIComponent(nodeId)}/token`,
+      { method: "POST" },
+    ),
   deleteNode: (nodeId: string) =>
     request<void>("/api/v1/nodes", {
       method: "DELETE",

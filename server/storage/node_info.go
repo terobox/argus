@@ -38,23 +38,24 @@ func (s *Store) GetNodeInfo(ctx context.Context, nodeID string) (metrics.HostInf
 	return hi, true, nil
 }
 
-// NodeSummary is a node row plus its hostname, core count, and tags (empty if
-// the agent never reported host info). It omits the token hash.
+// NodeSummary is a node row plus its hostname, agent version, core count, and
+// tags (empty if the agent never reported host info). It omits the token hash.
 type NodeSummary struct {
 	NodeID    string
 	Hostname  string
+	AgentVer  string
 	FirstSeen int64
 	LastSeen  int64
 	CPUCores  int
 	Tags      []string
 }
 
-// ListNodeSummaries returns all nodes with their hostname and core count,
-// ordered by node_id.
+// ListNodeSummaries returns all nodes with their hostname, agent version, and
+// core count, ordered by node_id.
 func (s *Store) ListNodeSummaries(ctx context.Context) ([]NodeSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT n.node_id, COALESCE(i.hostname, ''), n.first_seen, n.last_seen,
-		       COALESCE(i.cpu_cores, 0), n.tags
+		SELECT n.node_id, COALESCE(i.hostname, ''), COALESCE(i.agent_ver, ''),
+		       n.first_seen, n.last_seen, COALESCE(i.cpu_cores, 0), n.tags
 		FROM nodes n LEFT JOIN node_info i ON i.node_id = n.node_id
 		ORDER BY n.node_id`)
 	if err != nil {
@@ -66,7 +67,7 @@ func (s *Store) ListNodeSummaries(ctx context.Context) ([]NodeSummary, error) {
 	for rows.Next() {
 		var n NodeSummary
 		var tags string
-		if err := rows.Scan(&n.NodeID, &n.Hostname, &n.FirstSeen, &n.LastSeen, &n.CPUCores, &tags); err != nil {
+		if err := rows.Scan(&n.NodeID, &n.Hostname, &n.AgentVer, &n.FirstSeen, &n.LastSeen, &n.CPUCores, &tags); err != nil {
 			return nil, fmt.Errorf("list node summaries scan: %w", err)
 		}
 		n.Tags = parseTags(tags)

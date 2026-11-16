@@ -73,8 +73,14 @@ func TestListNodeSummaries(t *testing.T) {
 	if got[0].Hostname != "host-a" {
 		t.Errorf("a hostname = %q, want host-a", got[0].Hostname)
 	}
+	if got[0].AgentVer != "dev" {
+		t.Errorf("a agent version = %q, want dev", got[0].AgentVer)
+	}
 	if got[1].Hostname != "" {
 		t.Errorf("b hostname = %q, want empty", got[1].Hostname)
+	}
+	if got[1].AgentVer != "" {
+		t.Errorf("b agent version = %q, want empty for a node without host info", got[1].AgentVer)
 	}
 }
 

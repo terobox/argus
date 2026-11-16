@@ -30,6 +30,11 @@ const (
 	// {node_id} is a path value.
 	NodeDetailPath = "/api/v1/nodes/{node_id}"
 
+	// NodeTokenPath rotates a node's token and returns the new one; {node_id}
+	// is a path value. Only the hash is stored, so this is the only way to get
+	// an install command for a node that already exists.
+	NodeTokenPath = "/api/v1/nodes/{node_id}/token"
+
 	// StreamPath is the SSE endpoint for live node/sample updates.
 	StreamPath = "/api/v1/stream"
 

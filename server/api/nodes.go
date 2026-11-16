@@ -22,15 +22,16 @@ var nodeIDRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 const maxSmallBodyBytes = 64 << 10 // 64 KiB
 
 // nodeView is the JSON shape returned by the node list endpoint. It omits the
-// token hash so a viewer cannot reconstruct or leak it. Hostname is empty if the
-// agent never reported host info.
+// token hash so a viewer cannot reconstruct or leak it. Hostname and
+// AgentVersion are empty if the agent never reported host info.
 type nodeView struct {
-	NodeID    string   `json:"node_id"`
-	Hostname  string   `json:"hostname"`
-	FirstSeen int64    `json:"first_seen"`
-	LastSeen  int64    `json:"last_seen"`
-	CPUCores  int      `json:"cpu_cores"`
-	Tags      []string `json:"tags"`
+	NodeID       string   `json:"node_id"`
+	Hostname     string   `json:"hostname"`
+	AgentVersion string   `json:"agent_version"`
+	FirstSeen    int64    `json:"first_seen"`
+	LastSeen     int64    `json:"last_seen"`
+	CPUCores     int      `json:"cpu_cores"`
+	Tags         []string `json:"tags"`
 }
 
 func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
@@ -43,12 +44,13 @@ func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
 	out := make([]nodeView, 0, len(nodes))
 	for _, n := range nodes {
 		out = append(out, nodeView{
-			NodeID:    n.NodeID,
-			Hostname:  n.Hostname,
-			FirstSeen: n.FirstSeen,
-			LastSeen:  n.LastSeen,
-			CPUCores:  n.CPUCores,
-			Tags:      n.Tags,
+			NodeID:       n.NodeID,
+			Hostname:     n.Hostname,
+			AgentVersion: n.AgentVer,
+			FirstSeen:    n.FirstSeen,
+			LastSeen:     n.LastSeen,
+			CPUCores:     n.CPUCores,
+			Tags:         n.Tags,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -147,6 +149,36 @@ func (s *Server) handleCreateNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, createNodeResponse{NodeID: req.NodeID, Token: token})
+}
+
+// handleRotateNodeToken issues a fresh token for an existing node and returns
+// it once, so the dashboard can show that node's install command again. The
+// previous token stops authenticating immediately; the agent on the host keeps
+// reporting 401 until it is reinstalled with the new one.
+func (s *Server) handleRotateNodeToken(w http.ResponseWriter, r *http.Request) {
+	nodeID := r.PathValue("node_id")
+	if nodeID == "" || !nodeIDRe.MatchString(nodeID) {
+		httpError(w, http.StatusBadRequest, "invalid node_id")
+		return
+	}
+
+	token, err := auth.RandomToken(32)
+	if err != nil {
+		s.logger.Error("generate node token", "err", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	ok, err := s.store.UpdateNodeToken(r.Context(), nodeID, storage.HashToken(token))
+	if err != nil {
+		s.logger.Error("rotate node token", "node_id", nodeID, "err", err)
+		httpError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if !ok {
+		httpError(w, http.StatusNotFound, "node not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, createNodeResponse{NodeID: nodeID, Token: token})
 }
 
 // normalizeTags trims whitespace and drops empty entries, so tags round-trip

@@ -79,14 +79,15 @@ type nodeMetrics struct {
 
 // nodeStatus is one node's entry in a "status" event.
 type nodeStatus struct {
-	NodeID    string       `json:"node_id"`
-	Hostname  string       `json:"hostname"`
-	FirstSeen int64        `json:"first_seen"`
-	LastSeen  int64        `json:"last_seen"`
-	Online    bool         `json:"online"`
-	CPUCores  int          `json:"cpu_cores"`
-	Tags      []string     `json:"tags"`
-	Live      *nodeMetrics `json:"live,omitempty"`
+	NodeID       string       `json:"node_id"`
+	Hostname     string       `json:"hostname"`
+	AgentVersion string       `json:"agent_version"`
+	FirstSeen    int64        `json:"first_seen"`
+	LastSeen     int64        `json:"last_seen"`
+	Online       bool         `json:"online"`
+	CPUCores     int          `json:"cpu_cores"`
+	Tags         []string     `json:"tags"`
+	Live         *nodeMetrics `json:"live,omitempty"`
 }
 
 // handleStream serves GET /api/v1/stream as a Server-Sent Events stream. It
@@ -177,13 +178,14 @@ func (s *Server) buildStatusPayload(ctx context.Context) ([]byte, error) {
 	out := make([]nodeStatus, 0, len(nodes))
 	for _, n := range nodes {
 		st := nodeStatus{
-			NodeID:    n.NodeID,
-			Hostname:  n.Hostname,
-			FirstSeen: n.FirstSeen,
-			LastSeen:  n.LastSeen,
-			Online:    now-n.LastSeen <= int64(nodeOfflineAfter/time.Second),
-			CPUCores:  n.CPUCores,
-			Tags:      n.Tags,
+			NodeID:       n.NodeID,
+			Hostname:     n.Hostname,
+			AgentVersion: n.AgentVer,
+			FirstSeen:    n.FirstSeen,
+			LastSeen:     n.LastSeen,
+			Online:       now-n.LastSeen <= int64(nodeOfflineAfter/time.Second),
+			CPUCores:     n.CPUCores,
+			Tags:         n.Tags,
 		}
 		if lv, ok := s.latest.get(n.NodeID); ok {
 			m := &nodeMetrics{

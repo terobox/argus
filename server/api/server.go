@@ -63,6 +63,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET "+protocol.NodesPath, s.auth.RequireAdmin(http.HandlerFunc(s.handleListNodes)))
 	mux.Handle("POST "+protocol.NodesPath, s.auth.RequireAdmin(s.auth.RequireCSRF(http.HandlerFunc(s.handleCreateNode))))
 	mux.Handle("DELETE "+protocol.NodesPath, s.auth.RequireAdmin(s.auth.RequireCSRF(http.HandlerFunc(s.handleDeleteNode))))
+	mux.Handle("POST "+protocol.NodeTokenPath, s.auth.RequireAdmin(s.auth.RequireCSRF(http.HandlerFunc(s.handleRotateNodeToken))))
 
 	// Dashboard reads and live stream (admin).
 	mux.Handle("GET "+protocol.NodeDetailPath, s.auth.RequireAdmin(http.HandlerFunc(s.handleNodeDetail)))

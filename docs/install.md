@@ -229,7 +229,10 @@ sudo -u shipit sh -c 'printf "" > /srv/app/argus/server/shared/.env'
 
 ## 二、安装 agent
 
-agent 保持原有方式：由 server 的 Web 界面生成安装命令，在目标机器执行。
+agent 保持原有方式：由 server 的 Web 界面生成安装命令，在目标机器执行。Settings →
+Nodes 列表每行的 **Install** 按钮可随时为该节点重新生成安装命令：token 只保存
+SHA-256 哈希、无法再次显示，所以按钮实际执行的是**轮换** token——旧 token 立即
+失效，目标机上的 agent 会一直报 401，直到用新命令重装配置为止。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/terobox/argus/main/deploy/install-agent.sh \
@@ -363,7 +366,10 @@ sudo /usr/local/bin/argus-agent update
 sudo systemctl restart argus-agent
 ```
 
-也可以重跑 `install-agent.sh`（幂等）。
+也可以重跑 `install-agent.sh`（幂等：覆盖二进制、配置与 unit）。注意脚本结尾的
+`systemctl enable --now` 对已在运行的服务不会重启，重装后要
+`sudo systemctl restart argus-agent` 才会用上新二进制/新配置；仅升级二进制时用
+上面的 `argus-agent update` 即可，不需要 token。
 
 > agent 不提供自动/远程升级：它以加固的非 root 用户运行，不应替换 root 拥有的
 > 二进制；升级一律由运维手动执行。

@@ -514,3 +514,58 @@ func TestAuthAndNodeCRUD(t *testing.T) {
 		t.Fatalf("ingest after revoke = %d, want 401", rr.Code)
 	}
 }
+
+func TestRotateNodeToken(t *testing.T) {
+	srv, store := newTestServer(t)
+	if err := store.UpsertNode(context.Background(), storage.Node{
+		NodeID: "n1", TokenHash: storage.HashToken("old"), FirstSeen: 1, LastSeen: 1, Tags: []string{"prod"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	seedAdmin(t, store, "admin", "secret")
+	h := srv.Handler()
+	cookie, csrf := login(t, h, "admin", "secret")
+
+	// Rotation is a mutation: it needs the CSRF token.
+	rr := doJSON(t, h, http.MethodPost, "/api/v1/nodes/n1/token", cookie, "", nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("rotate without csrf = %d, want 403", rr.Code)
+	}
+
+	rr = doJSON(t, h, http.MethodPost, "/api/v1/nodes/n1/token", cookie, csrf, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("rotate = %d; body=%s", rr.Code, rr.Body.String())
+	}
+	var resp createNodeResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode rotate: %v", err)
+	}
+	if resp.NodeID != "n1" || resp.Token == "" {
+		t.Fatalf("rotate response = %+v, want node_id and token", resp)
+	}
+
+	rep := protocol.Report{
+		Version: protocol.Version, NodeID: "n1", CollectedAt: 100,
+		Samples: []metrics.Sample{testSample(100)},
+	}
+	if rr := postReport(t, h, rep, "old", false); rr.Code != http.StatusUnauthorized {
+		t.Fatalf("old token after rotate = %d, want 401", rr.Code)
+	}
+	if rr := postReport(t, h, rep, resp.Token, false); rr.Code != http.StatusNoContent {
+		t.Fatalf("new token after rotate = %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Rotation preserves the node's tags and timestamps.
+	nodes, err := store.ListNodeSummaries(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(nodes) != 1 || len(nodes[0].Tags) != 1 || nodes[0].Tags[0] != "prod" {
+		t.Fatalf("nodes = %+v, want tags preserved", nodes)
+	}
+
+	rr = doJSON(t, h, http.MethodPost, "/api/v1/nodes/ghost/token", cookie, csrf, nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("rotate unknown node = %d, want 404", rr.Code)
+	}
+}
