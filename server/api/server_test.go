@@ -36,8 +36,8 @@ func newTestServer(t *testing.T) (*Server, *storage.Store) {
 }
 
 // TestUnknownRoutes pins the behavior of the API-only mux: there is no SPA
-// catch-all, unknown paths 404, the root is a plain-text welcome, and a known
-// path with the wrong method gets the ServeMux 405.
+// catch-all, unknown paths 404, the root is a JSON welcome, and a known path
+// with the wrong method gets the ServeMux 405.
 func TestUnknownRoutes(t *testing.T) {
 	s, _ := newTestServer(t)
 	h := s.Handler()
@@ -75,13 +75,17 @@ func TestRootWelcome(t *testing.T) {
 		t.Fatalf("content-type = %q, want application/json", ct)
 	}
 	var resp struct {
-		Message string `json:"message"`
+		Message    string `json:"message"`
+		Repository string `json:"repository"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode root: %v", err)
 	}
-	if !strings.Contains(resp.Message, "argus-server") {
-		t.Fatalf("message = %q, want it to name argus-server", resp.Message)
+	if !strings.Contains(resp.Message, "Argus") {
+		t.Fatalf("message = %q, want a welcome naming Argus", resp.Message)
+	}
+	if resp.Repository == "" {
+		t.Fatal("repository = empty, want the project URL")
 	}
 }
 
