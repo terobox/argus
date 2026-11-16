@@ -3,6 +3,16 @@
 Lightweight server monitoring built with Go and React. The server and agent are
 standalone Go binaries; the dashboard is a separately deployed web app.
 
+## 界面预览
+
+| 总览 | 实例详情 |
+| --- | --- |
+| ![总览](docs/assets/demo-overview.png) | ![实例详情](docs/assets/demo-instance.png) |
+
+| 历史图表 | 节点管理 |
+| --- | --- |
+| ![历史图表](docs/assets/demo-chart.png) | ![节点管理](docs/assets/demo-settings.png) |
+
 ## 配置
 
 每个组件各带一份提交进仓库的配置示例，字段含义见文件内注释：
